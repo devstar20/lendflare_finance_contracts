@@ -216,14 +216,16 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
         if (pool.isErc20) {
             sendToken(pool.underlyToken, pool.supplyTreasuryFund, bal);
-        } else {
-            payable(pool.supplyTreasuryFund).transfer(bal);
-        }
 
-        ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor{value: bal}(
-            address(0),
-            bal
-        );
+            ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor(
+                address(0),
+                bal
+            );
+        } else {
+            ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor{value: bal}(
+                address(0)
+            );
+        }
     }
 
     function toggleShutdownPool(uint256 _pid) public onlyOwner {
@@ -257,11 +259,16 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
                 pool.supplyTreasuryFund,
                 _amount
             );
-        }
 
-        ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor{
-            value: msg.value
-        }(msg.sender, _amount);
+            ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor(
+                msg.sender,
+                _amount
+            );
+        } else {
+            ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor{
+                value: msg.value
+            }(msg.sender);
+        }
 
         IBaseReward(pool.rewardInterestPool).stake(msg.sender);
 

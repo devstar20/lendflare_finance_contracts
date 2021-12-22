@@ -28,7 +28,8 @@ interface ISupplyPoolExtraReward {
 
 interface ISupplyTreasuryFund {
     function initialize(address _virtualBalance, address _underlyToken, bool _isErc20) external;
-    function depositFor(address _for, uint256 _amount) external payable;
+    function depositFor(address _for) external payable;
+    function depositFor(address _for, uint256 _amount) external;
     function withdrawFor(address _to, uint256 _amount) external  returns (uint256);
     function borrow(address _to, uint256 _lendingAmount,uint256 _lendingInterest) external returns (uint256);
     function repayBorrow() external payable;

@@ -204,12 +204,7 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         }
     }
 
-    function depositFor(address _for, uint256 _amount)
-        public
-        payable
-        onlyOwner
-        nonReentrant
-    {
+    function _depositFor(address _for, uint256 _amount) internal {
         require(initialized, "!initialized");
         totalUnderlyToken = totalUnderlyToken.add(_amount);
 
@@ -219,10 +214,24 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
 
             _mintErc20(_amount);
         } else {
-            _mintEther(msg.value);
+            _mintEther(_amount);
         }
 
-        IBaseReward(rewardCompPool).stake(_for);
+        if (_for != address(0)) {
+            IBaseReward(rewardCompPool).stake(_for);
+        }
+    }
+
+    function depositFor(address _for) public payable onlyOwner nonReentrant {
+        _depositFor(_for, msg.value);
+    }
+
+    function depositFor(address _for, uint256 _amount)
+        public
+        onlyOwner
+        nonReentrant
+    {
+        _depositFor(_for, _amount);
     }
 
     function withdrawFor(address _to, uint256 _amount)
