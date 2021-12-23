@@ -39,6 +39,7 @@ contract BaseReward {
     event Staked(address indexed user);
     event Withdrawn(address indexed user);
     event RewardPaid(address indexed user, uint256 reward);
+    event SetOwner(address owner);
 
     modifier updateReward(address account) {
         rewardPerTokenStored = rewardPerToken();
@@ -93,6 +94,13 @@ contract BaseReward {
                 .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
                 .div(1e18)
                 .add(rewards[account]);
+    }
+
+    function setOwner(address _owner) public {
+        require(msg.sender == owner, "BaseReward: !authorized setOwner");
+        owner = _owner;
+
+        emit SetOwner(_owner);
     }
 
     function stake(address _for) public updateReward(_for) {

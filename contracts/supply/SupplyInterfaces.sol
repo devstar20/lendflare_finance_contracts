@@ -38,7 +38,7 @@ interface ISupplyTreasuryFund {
     function getBalance() external view returns (uint256);
     function getBorrowRatePerBlock() external view returns (uint256);
     function claim() external returns(uint256);
-    function migrate() external returns(uint256);
+    function migrate(address _newTreasuryFund, bool _setReward) external returns(uint256);
     function getReward(address _for) external;
 }
 

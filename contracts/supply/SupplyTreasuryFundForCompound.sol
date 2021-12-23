@@ -184,7 +184,12 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
 
     receive() external payable {}
 
-    function migrate() external onlyOwner nonReentrant returns (uint256) {
+    function migrate(address _newTreasuryFund, bool _setReward)
+        external
+        onlyOwner
+        nonReentrant
+        returns (uint256)
+    {
         uint256 cTokens = IERC20(lpToken).balanceOf(address(this));
 
         ICompound(lpToken).redeem(cTokens);
@@ -201,6 +206,10 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
             if (bal > 0) {
                 payable(owner).transfer(bal);
             }
+        }
+
+        if (_setReward) {
+            IBaseReward(rewardCompPool).setOwner(_newTreasuryFund);
         }
     }
 

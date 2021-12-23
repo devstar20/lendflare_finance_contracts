@@ -14,6 +14,7 @@ pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IUniswapV2Router02 {
     function factory() external pure returns (address);
@@ -56,14 +57,13 @@ interface IUniswapV2Factory {
         returns (address pair);
 }
 
-contract LiquidityTransformer {
+contract LiquidityTransformer is ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
     using Address for address;
 
     IERC20 public lendflareToken;
     address public uniswapPair;
-    address public owner;
 
     IUniswapV2Router02 public constant uniswapRouter =
         IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
@@ -94,22 +94,10 @@ contract LiquidityTransformer {
         uint256 liquidity,
         uint256 endTimeAt
     );
-    event SetOwner(address owner);
 
     modifier afterUniswapTransfer() {
         require(globals.liquidity == true, "forward liquidity first");
         _;
-    }
-
-    modifier onlyOwner() {
-        require(owner == msg.sender, "caller is not the owner");
-        _;
-    }
-
-    function setOwner(address _owner) public onlyOwner {
-        owner = _owner;
-
-        emit SetOwner(_owner);
     }
 
     receive() external payable {
@@ -125,12 +113,14 @@ contract LiquidityTransformer {
         launchTime = _launchTime;
         lendflareToken = IERC20(_lendflareToken);
         teamAddress = _teamAddress;
-        owner = msg.sender;
 
         minInvest = 0.1 ether;
         investmentDays = 7 days;
 
-        
+        // @devbegin
+        // It will be removed on mainnet.
+        investmentDays = 2 hours;
+        // @devend
     }
 
     function createPair() external {
@@ -184,7 +174,7 @@ contract LiquidityTransformer {
         globals.totalUsers++;
     }
 
-    function forwardLiquidity() external onlyOwner {
+    function forwardLiquidity() external nonReentrant {
         require(globals.liquidity == false, "!globals.liquidity");
         require(
             block.timestamp > launchTime.add(investmentDays),
@@ -230,7 +220,7 @@ contract LiquidityTransformer {
         );
     }
 
-    function getMyTokens() external afterUniswapTransfer {
+    function getMyTokens() external afterUniswapTransfer nonReentrant {
         require(globals.liquidity, "!globals.liquidity");
         require(investorBalances[msg.sender] > 0, "!balance");
 

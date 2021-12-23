@@ -18,4 +18,5 @@ interface IBaseReward {
     function withdraw(address _for) external;
     function getReward(address _for) external;
     function notifyRewardAmount(uint256 reward) external;
+    function setOwner(address _owner) external;
 }

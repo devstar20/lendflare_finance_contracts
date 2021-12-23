@@ -197,14 +197,17 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         return true;
     }
 
-    function updateSupplyTreasuryFund(uint256 _pid, address _supplyTreasuryFund)
-        public
-        onlyOwner
-        nonReentrant
-    {
+    function updateSupplyTreasuryFund(
+        uint256 _pid,
+        address _supplyTreasuryFund,
+        bool _setReward
+    ) public onlyOwner nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
 
-        uint256 bal = ISupplyTreasuryFund(pool.supplyTreasuryFund).migrate();
+        uint256 bal = ISupplyTreasuryFund(pool.supplyTreasuryFund).migrate(
+            _supplyTreasuryFund,
+            _setReward
+        );
 
         ISupplyTreasuryFund(_supplyTreasuryFund).initialize(
             pool.virtualBalance,
