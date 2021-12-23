@@ -371,17 +371,24 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         }
     }
 
-    function getRewards(uint256 _pid) public nonReentrant {
-        PoolInfo memory pool = poolInfo[_pid];
+    function getRewards(uint256[] memory _pids) public nonReentrant {
+        for (uint256 i = 0; i < _pids.length; i++) {
+            PoolInfo memory pool = poolInfo[_pids[i]];
 
-        ISupplyTreasuryFund(pool.supplyTreasuryFund).getReward(msg.sender);
+            if (pool.shutdown) continue;
 
-        if (IBaseReward(pool.rewardInterestPool).earned(msg.sender) > 0) {
-            IBaseReward(pool.rewardInterestPool).getReward(msg.sender);
-        }
+            ISupplyTreasuryFund(pool.supplyTreasuryFund).getReward(msg.sender);
 
-        if (extraReward != address(0)) {
-            ISupplyPoolExtraReward(extraReward).getRewards(_pid, msg.sender);
+            if (IBaseReward(pool.rewardInterestPool).earned(msg.sender) > 0) {
+                IBaseReward(pool.rewardInterestPool).getReward(msg.sender);
+            }
+
+            if (extraReward != address(0)) {
+                ISupplyPoolExtraReward(extraReward).getRewards(
+                    _pids[i],
+                    msg.sender
+                );
+            }
         }
     }
 

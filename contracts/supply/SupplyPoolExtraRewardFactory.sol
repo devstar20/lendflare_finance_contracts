@@ -236,9 +236,11 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         ILendFlareGague(gaugePool[_pid]).user_checkpoint(_for);
     }
 
-    function getVeLFTUserRewards(uint256 _pid) public nonReentrant {
-        if (IBaseReward(veLendFlarePool[_pid]).earned(msg.sender) > 0) {
-            IBaseReward(veLendFlarePool[_pid]).getReward(msg.sender);
+    function getVeLFTUserRewards(uint256[] memory _pids) public nonReentrant {
+        for (uint256 i = 0; i < _pids.length; i++) {
+            if (IBaseReward(veLendFlarePool[_pids[i]]).earned(msg.sender) > 0) {
+                IBaseReward(veLendFlarePool[_pids[i]]).getReward(msg.sender);
+            }
         }
     }
 

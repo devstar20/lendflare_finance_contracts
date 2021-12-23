@@ -167,7 +167,6 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 supportPid;
         int128 curveCoinId;
         uint256 borrowNumbers;
-        uint256 borrowBlocksLimit;
     }
 
     struct LendingInfo {
@@ -218,9 +217,9 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     event LendingBase(
         bytes32 indexed lendingId,
         uint256 marketPid,
-        uint256 supportPid,
+        uint256 supplyPid,
         int128 curveCoinId,
-        uint256 borrowBlocksLimit
+        uint256 borrowBlocks
     );
 
     event Borrow(
@@ -393,8 +392,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 lendingInterest: lendingParams.lendingInterest,
                 supportPid: pool.supportPids[_supportPid],
                 curveCoinId: pool.curveCoinIds[_supportPid],
-                borrowNumbers: _borrowNumber,
-                borrowBlocksLimit: borrowNumberLimit[_borrowNumber]
+                borrowNumbers: borrowNumberLimit[_borrowNumber]
             })
         );
 
@@ -457,7 +455,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
         require(
             block.number <=
-                lendingInfo.startedBlock.add(userLending.borrowBlocksLimit),
+                lendingInfo.startedBlock.add(userLending.borrowNumbers),
             "Expired"
         );
 
