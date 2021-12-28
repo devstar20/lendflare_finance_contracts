@@ -678,6 +678,12 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         public
         onlyOwner
     {
+        if (_v == 0) {
+            borrowNumberLimit[_number] = 0;
+
+            return;
+        }
+
         require(_number > 6 && _v > 64, "!_number or !_v");
 
         borrowNumberLimit[_number] = _v;
