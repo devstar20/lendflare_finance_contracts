@@ -593,7 +593,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address _user,
         uint256 _lendingAmount,
         uint256 _lendingInterest
-    ) internal nonReentrant {
+    ) internal {
         LendingInfo storage lendingInfo = lendingInfos[_lendingId];
         PoolInfo memory pool = poolInfo[lendingInfo.pid];
 
@@ -647,7 +647,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address _user,
         uint256 _lendingAmount,
         uint256 _lendingInterest
-    ) external onlyLendingMarket {
+    ) external onlyLendingMarket nonReentrant {
         _repayBorrow(_lendingId, _user, _lendingAmount, _lendingInterest);
     }
 
