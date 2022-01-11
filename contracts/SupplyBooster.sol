@@ -251,7 +251,10 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
         require(!pool.shutdown, "!shutdown");
         require(_amount > 0, "!_amount");
-        require(!pool.isErc20 && msg.value == _amount, "!_amount");
+
+        if (!pool.isErc20) {
+            require(msg.value == _amount, "!msg.value == _amount");
+        }
 
         if (pool.isErc20) {
             IERC20(pool.underlyToken).safeTransferFrom(
