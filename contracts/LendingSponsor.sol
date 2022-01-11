@@ -13,8 +13,10 @@ LendFlare.finance
 pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 
 contract LendingSponsor {
+    using Address for address payable;
     using SafeMath for uint256;
 
     enum LendingInfoState {
@@ -35,7 +37,6 @@ contract LendingSponsor {
     mapping(bytes32 => LendingInfo) public lendingInfos;
 
     event AddSponsor(bytes32 sponsor, uint256 amount);
-    event RequestFee(bytes32 sponsor, uint256 amount);
     event PayFee(bytes32 sponsor, address user, uint256 sponsorAmount);
     event SetOwner(address owner);
 
@@ -49,10 +50,7 @@ contract LendingSponsor {
     }
 
     modifier onlyOwner() {
-        require(
-            owner == msg.sender,
-            "LendingSponsor: caller is not the owner"
-        );
+        require(owner == msg.sender, "LendingSponsor: caller is not the owner");
         _;
     }
 
@@ -67,6 +65,8 @@ contract LendingSponsor {
     }
 
     function setLendingMarket(address _v) external onlyOwner {
+        require(_v != address(0), "!_v");
+
         lendingMarket = _v;
     }
 
@@ -79,7 +79,9 @@ contract LendingSponsor {
         if (lendingInfo.state == LendingInfoState.NONE) {
             lendingInfo.state = LendingInfoState.CLOSED;
 
-            _user.transfer(lendingInfo.amount);
+            _user.sendValue(lendingInfo.amount);
+
+            totalSupply = totalSupply.sub(lendingInfo.amount);
 
             emit PayFee(_lendingId, _user, lendingInfo.amount);
         }

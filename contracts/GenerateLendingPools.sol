@@ -34,7 +34,7 @@ interface ISupplyBooster {
 interface ILendingMarket {
     function addMarketPool(
         uint256 _convexBoosterPid,
-        uint256[] memory _compoundBoosterPids,
+        uint256[] memory _supplyBoosterPids,
         int128[] memory _curveCoinIds,
         uint256 _lendingThreshold,
         uint256 _liquidateThreshold
@@ -102,9 +102,7 @@ contract GenerateLendingPools {
         uint256 _param2,
         int128 _param3,
         int128 _param4
-    ) internal pure returns (LendingMarketMapping memory) {
-        LendingMarketMapping memory lendingMarketMapping;
-
+    ) internal pure returns (LendingMarketMapping memory lendingMarketMapping) {
         uint256[] memory supplyBoosterPids = new uint256[](2);
         int128[] memory curveCoinIds = new int128[](2);
 
@@ -123,9 +121,7 @@ contract GenerateLendingPools {
         uint256 _convexBoosterPid,
         uint256 _param1,
         int128 _param2
-    ) internal pure returns (LendingMarketMapping memory) {
-        LendingMarketMapping memory lendingMarketMapping;
-
+    ) internal pure returns (LendingMarketMapping memory lendingMarketMapping) {
         uint256[] memory supplyBoosterPids = new uint256[](1);
         int128[] memory curveCoinIds = new int128[](1);
 
@@ -140,21 +136,13 @@ contract GenerateLendingPools {
     function generateSupplyPools() internal {
         address compoundComptroller = 0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B;
 
-        address USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-        address cUSDC = 0x39AA39c021dfbaE8faC545936693aC917d5E7563;
+        (address USDC,address cUSDC) = (0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, 0x39AA39c021dfbaE8faC545936693aC917d5E7563);
+        (address DAI,address cDAI) = (0x6B175474E89094C44Da98b954EedeAC495271d0F, 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643);
+        (address TUSD,address cTUSD) = (0x0000000000085d4780B73119b644AE5ecd22b376, 0x12392F67bdf24faE0AF363c24aC620a2f67DAd86);
+        (address WBTC,address cWBTC) = (0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599, 0xC11b1268C1A384e55C48c2391d8d480264A3A7F4);
+        (address Ether,address cEther) = (0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5);
 
-        address DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-        address cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
 
-        address TUSD = 0x0000000000085d4780B73119b644AE5ecd22b376;
-        address cTUSD = 0x12392F67bdf24faE0AF363c24aC620a2f67DAd86;
-
-        address WBTC = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
-        address cWBTC = 0xC11b1268C1A384e55C48c2391d8d480264A3A7F4;
-
-        address Ether = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-        address cEther = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
-        
         supplyPools.push(USDC);
         supplyPools.push(DAI);
         supplyPools.push(TUSD);
@@ -183,7 +171,7 @@ contract GenerateLendingPools {
     }
 
     function generateConvexPools() internal {
-        // USDC,DAI , compoundBoosterPids, curveCoinIds  =  [cUSDC, cDAI], [USDC, DAI]
+        // USDC,DAI , supplyBoosterPids, curveCoinIds  =  [cUSDC, cDAI], [USDC, DAI]
         convexPools.push( ConvexPool(0xC25a3A3b969415c80451098fa907EC722572917F, 4) ); // DAI USDC USDT sUSD               [1, 0] [0, 1] sUSD
         convexPools.push( ConvexPool(0x5a6A4D54456819380173272A5E8E9B9904BdF41B, 40) ); // MIM DAI USDC USDT               [1, 0] [1, 2] mim
         convexPools.push( ConvexPool(0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490, 9) ); // DAI USDC USDT                    [1, 0] [0, 1] 3Pool
@@ -224,7 +212,7 @@ contract GenerateLendingPools {
         }
     }
 
-    function generateMappingPools() public {
+    function generateMappingPools() internal {
         lendingMarketMappings.push(createMapping(0, 1, 0, 0, 1)); // [1, 0] [0, 1]
         lendingMarketMappings.push(createMapping(1, 1, 0, 1, 2)); // [1, 0] [1, 2]
         lendingMarketMappings.push(createMapping(2, 1, 0, 0, 1)); // [1, 0] [0, 1]
@@ -252,10 +240,10 @@ contract GenerateLendingPools {
         lendingMarketMappings.push(createMapping(22, 3, 2)); // [3] [2]
         lendingMarketMappings.push(createMapping(23, 3, 2)); // [3] [2]
 
-        lendingMarketMappings.push(createMapping(24, 4, 0)); // [3] [2]
-        lendingMarketMappings.push(createMapping(25, 4, 0)); // [3] [2]
-        lendingMarketMappings.push(createMapping(26, 4, 0)); // [3] [2]
-        lendingMarketMappings.push(createMapping(27, 4, 0)); // [3] [2]
+        lendingMarketMappings.push(createMapping(24, 4, 0)); // [4] [0]
+        lendingMarketMappings.push(createMapping(25, 4, 0)); // [4] [0]
+        lendingMarketMappings.push(createMapping(26, 4, 0)); // [4] [0]
+        lendingMarketMappings.push(createMapping(27, 4, 0)); // [4] [0]
 
         for (uint256 i = 0; i < lendingMarketMappings.length; i++) {
             ILendingMarket(lendingMarket).addMarketPool(
@@ -270,11 +258,13 @@ contract GenerateLendingPools {
 
     function run() public {
         require(owner == msg.sender, "GenerateLendingPools: !authorized run");
-        require(!completed, "!completed");
+        require(!completed, "GenerateLendingPools: !completed");
 
         generateSupplyPools();
         generateConvexPools();
         generateMappingPools();
+
+        completed = true;
     }
 
     function revertOwner(address _owner) external {

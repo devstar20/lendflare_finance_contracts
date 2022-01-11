@@ -56,37 +56,33 @@ contract Timelock {
     mapping(bytes32 => bool) public queuedTransactions;
 
     constructor(address admin_, uint256 delay_) public {
+        admin = admin_;
+
+        _setDelay(delay_);
+    }
+
+    function _setDelay(uint256 delay_) internal {
         require(
             delay_ >= MINIMUM_DELAY,
-            "Timelock::constructor: Delay must exceed minimum delay."
+            "Timelock::_setDelay: Delay must exceed minimum delay."
         );
         require(
             delay_ <= MAXIMUM_DELAY,
-            "Timelock::setDelay: Delay must not exceed maximum delay."
+            "Timelock::_setDelay: Delay must not exceed maximum delay."
         );
 
-        admin = admin_;
         delay = delay_;
-    }
 
-    receive() external payable {}
+        emit NewDelay(delay);
+    }
 
     function setDelay(uint256 delay_) public {
         require(
             msg.sender == address(this),
-            "Timelock::setDelay: Call must come from Timelock."
+            "Timelock::_setDelay: Call must come from Timelock."
         );
-        require(
-            delay_ >= MINIMUM_DELAY,
-            "Timelock::setDelay: Delay must exceed minimum delay."
-        );
-        require(
-            delay_ <= MAXIMUM_DELAY,
-            "Timelock::setDelay: Delay must not exceed maximum delay."
-        );
-        delay = delay_;
 
-        emit NewDelay(delay);
+        _setDelay(delay_);
     }
 
     function acceptAdmin() public {

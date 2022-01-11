@@ -100,10 +100,6 @@ contract LiquidityTransformer is ReentrancyGuard {
         _;
     }
 
-    receive() external payable {
-        revert();
-    }
-
     constructor(
         address _lendflareToken,
         address payable _teamAddress,
@@ -117,10 +113,7 @@ contract LiquidityTransformer is ReentrancyGuard {
         minInvest = 0.1 ether;
         investmentDays = 7 days;
 
-        // @devbegin
-        // It will be removed on mainnet.
-        investmentDays = 2 hours;
-        // @devend
+        
     }
 
     function createPair() external {
@@ -128,6 +121,13 @@ contract LiquidityTransformer is ReentrancyGuard {
 
         uniswapPair = address(
             IUniswapV2Factory(factory()).createPair(WETH(), address(this))
+        );
+    }
+
+    receive() external payable {
+        require(
+            msg.sender == address(uniswapRouter) || msg.sender == teamAddress,
+            "direct deposits disabled"
         );
     }
 
@@ -151,10 +151,8 @@ contract LiquidityTransformer is ReentrancyGuard {
             0,
             _path,
             address(this),
-            block.timestamp.add(2 hours)
+            block.timestamp
         );
-
-        require(amounts[1] >= minInvest, "Investment below minimum");
 
         _reserve(msg.sender, amounts[1]);
     }
@@ -206,7 +204,7 @@ contract LiquidityTransformer is ReentrancyGuard {
                 0,
                 0,
                 address(0x0),
-                block.timestamp.add(2 hours)
+                block.timestamp
             );
 
         globals.liquidity = true;

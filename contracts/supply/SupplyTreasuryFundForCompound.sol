@@ -133,8 +133,16 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
     bool public isErc20;
     bool private initialized;
 
+    modifier onlyInitialized() {
+        require(initialized, "!initialized");
+        _;
+    }
+
     modifier onlyOwner() {
-        require(msg.sender == owner, "!authorized");
+        require(
+            msg.sender == owner,
+            "SupplyTreasuryFundForCompound: !authorized"
+        );
         _;
     }
 
@@ -214,7 +222,6 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
     }
 
     function _depositFor(address _for, uint256 _amount) internal {
-        require(initialized, "!initialized");
         totalUnderlyToken = totalUnderlyToken.add(_amount);
 
         if (isErc20) {
@@ -231,12 +238,13 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         }
     }
 
-    function depositFor(address _for) public payable onlyOwner nonReentrant {
+    function depositFor(address _for) public payable onlyInitialized onlyOwner nonReentrant {
         _depositFor(_for, msg.value);
     }
 
     function depositFor(address _for, uint256 _amount)
         public
+        onlyInitialized
         onlyOwner
         nonReentrant
     {
@@ -245,15 +253,17 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
 
     function withdrawFor(address _to, uint256 _amount)
         public
+        onlyInitialized
         onlyOwner
         nonReentrant
         returns (uint256)
     {
-        require(initialized, "!initialized");
-
         IBaseReward(rewardCompPool).withdraw(_to);
 
-        require(totalUnderlyToken >= _amount, "!insufficient balance");
+        require(
+            totalUnderlyToken >= _amount,
+            "SupplyTreasuryFundForCompound: !insufficient balance"
+        );
 
         totalUnderlyToken = totalUnderlyToken.sub(_amount);
 
@@ -280,9 +290,7 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         address _to,
         uint256 _lendingAmount,
         uint256 _lendingInterest
-    ) public nonReentrant returns (uint256) {
-        require(initialized, "!initialized");
-
+    ) public onlyInitialized nonReentrant returns (uint256) {
         totalUnderlyToken = totalUnderlyToken.sub(_lendingAmount);
         frozenUnderlyToken = frozenUnderlyToken.add(_lendingAmount);
 
@@ -307,18 +315,14 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         return _lendingInterest;
     }
 
-    function repayBorrow() public payable nonReentrant {
-        require(initialized, "!initialized");
-
+    function repayBorrow() public payable onlyInitialized nonReentrant {
         _mintEther(msg.value);
 
         totalUnderlyToken = totalUnderlyToken.add(msg.value);
         frozenUnderlyToken = frozenUnderlyToken.sub(msg.value);
     }
 
-    function repayBorrow(uint256 _lendingAmount) public nonReentrant {
-        require(initialized, "!initialized");
-
+    function repayBorrow(uint256 _lendingAmount) public onlyInitialized nonReentrant {
         IERC20(underlyToken).safeApprove(lpToken, 0);
         IERC20(underlyToken).safeApprove(lpToken, _lendingAmount);
 
@@ -335,9 +339,7 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         return exchangeRateStored.mul(cTokens).div(1e18);
     }
 
-    function claim() public onlyOwner nonReentrant returns (uint256) {
-        require(initialized, "!initialized");
-
+    function claim() public onlyInitialized onlyOwner nonReentrant returns (uint256) {
         ICompoundComptroller(compoundComptroller).claimComp(address(this));
 
         uint256 balanceOfComp = IERC20(compAddress).balanceOf(address(this));

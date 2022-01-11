@@ -15,10 +15,11 @@ pragma solidity =0.6.12;
 import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./ConvexInterfaces.sol";
 import "../common/IVirtualBalanceWrapper.sol";
 
-contract ConvexRewardPool {
+contract ConvexRewardPool is ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -77,7 +78,10 @@ contract ConvexRewardPool {
     }
 
     function addExtraReward(address _reward) external returns (bool) {
-        require(msg.sender == owner, "ConvexRewardPool: !authorized addExtraReward");
+        require(
+            msg.sender == owner,
+            "ConvexRewardPool: !authorized addExtraReward"
+        );
         require(_reward != address(0), "!reward setting");
 
         extraRewards.push(_reward);
@@ -85,7 +89,10 @@ contract ConvexRewardPool {
     }
 
     function clearExtraRewards() external {
-        require(msg.sender == owner, "ConvexRewardPool: !authorized clearExtraRewards");
+        require(
+            msg.sender == owner,
+            "ConvexRewardPool: !authorized clearExtraRewards"
+        );
 
         delete extraRewards;
     }
@@ -116,19 +123,19 @@ contract ConvexRewardPool {
                 .add(rewards[account]);
     }
 
-    function stake(address _for) public updateReward(_for) {
+    function stake(address _for) public nonReentrant updateReward(_for) {
         require(msg.sender == owner, "ConvexRewardPool: !authorized stake");
 
         emit Staked(_for);
     }
 
-    function withdraw(address _for) public updateReward(_for) {
+    function withdraw(address _for) public nonReentrant updateReward(_for) {
         require(msg.sender == owner, "ConvexRewardPool: !authorized withdraw");
 
         emit Withdrawn(_for);
     }
 
-    function getReward(address _for) public updateReward(_for) {
+    function getReward(address _for) public nonReentrant updateReward(_for) {
         uint256 reward = earned(_for);
 
         if (reward > 0) {
@@ -157,7 +164,10 @@ contract ConvexRewardPool {
         external
         updateReward(address(0))
     {
-        require(msg.sender == owner, "ConvexRewardPool: !authorized notifyRewardAmount");
+        require(
+            msg.sender == owner,
+            "ConvexRewardPool: !authorized notifyRewardAmount"
+        );
         // overflow fix according to https://sips.synthetix.io/sips/sip-77
         require(
             reward < uint256(-1) / 1e18,
@@ -183,14 +193,17 @@ contract ConvexRewardPool {
 contract ConvexRewardFactory {
     address public owner;
 
-    event CreateReward(address rewardPool, address rewardToken);
+    event CreateReward(IConvexRewardPool rewardPool, address rewardToken);
 
     constructor() public {
         owner = msg.sender;
     }
 
     function setOwner(address _owner) external {
-        require(msg.sender == owner, "ConvexRewardFactory: !authorized setOwner");
+        require(
+            msg.sender == owner,
+            "ConvexRewardFactory: !authorized setOwner"
+        );
 
         owner = _owner;
     }
@@ -200,15 +213,16 @@ contract ConvexRewardFactory {
         address _virtualBalance,
         address _owner
     ) external returns (address) {
-        require(msg.sender == owner, "ConvexRewardFactory: !authorized createReward");
-
-        ConvexRewardPool rewardPool = new ConvexRewardPool(
-            _rewardToken,
-            _virtualBalance,
-            _owner
+        require(
+            msg.sender == owner,
+            "ConvexRewardFactory: !authorized createReward"
         );
 
-        emit CreateReward(address(rewardPool), _rewardToken);
+        IConvexRewardPool rewardPool = IConvexRewardPool(
+            address(new ConvexRewardPool(_rewardToken, _virtualBalance, _owner))
+        );
+
+        emit CreateReward(rewardPool, _rewardToken);
 
         return address(rewardPool);
     }

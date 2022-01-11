@@ -15,7 +15,7 @@ pragma solidity =0.6.12;
 interface IConvexBooster {
     function deposit( uint256 _pid, uint256 _amount, bool _stake ) external returns (bool);
     function withdraw(uint256 _pid, uint256 _amount) external returns(bool);
-    function cliamStashToken( address _token, address _rewardAddress, address _lfRewardAddress, uint256 _rewards ) external;
+    function claimStashToken(address _token, address _rewardAddress, address _lfRewardAddress, uint256 _rewards) external;
     function poolInfo(uint256) external view returns(address,address,address,address,address, bool);
     function isShutdown() external view returns(bool);
     function minter() external view returns(address);

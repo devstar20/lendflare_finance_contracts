@@ -69,7 +69,7 @@ interface ISupplyBooster {
         uint256 _lendingInterest
     ) external payable returns (address);
 
-    function getLendingInfos(bytes32 _lendingId)
+    function getLendingUnderlyToken(bytes32 _lendingId)
         external
         view
         returns (address);
@@ -107,19 +107,10 @@ interface ISupplyBooster {
 }
 
 interface ICurveSwap {
-    // function get_virtual_price() external view returns (uint256);
-
-    // lp to token 68900637075889600000000, 2
     function calc_withdraw_one_coin(uint256 _tokenAmount, int128 _tokenId)
         external
         view
         returns (uint256);
-
-    // token to lp params: [0,0,70173920000], false
-    /* function calc_token_amount(uint256[] memory amounts, bool deposit)
-        external
-        view
-        returns (uint256); */
 }
 
 interface ILendingSponsor {
@@ -203,6 +194,13 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
     PoolInfo[] public poolInfo;
 
+    uint256 public constant MIN_LENDING_THRESHOLD = 100;
+    uint256 public constant MIN_LIQUIDATE_THRESHOLD = 50;
+    uint256 public constant MAX_LENDING_THRESHOLD = 300;
+    uint256 public constant MAX_LIQUIDATE_THRESHOLD = 300;
+    uint256 public constant SUPPLY_RATE_DENOMINATOR = 1e18;
+    uint256 public constant THRESHOLD_DENOMINATOR = 1000;
+
     // user address => container
     mapping(address => UserLending[]) public userLendings;
     // lending id => user address
@@ -212,7 +210,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     mapping(bytes32 => BorrowInfo) public borrowInfos;
     mapping(bytes32 => Statistic) public myStatistics;
     // number => block numbers
-    mapping(uint256 => uint256) public borrowNumberLimit;
+    mapping(uint256 => uint256) public borrowBlocks;
 
     event LendingBase(
         bytes32 indexed lendingId,
@@ -273,9 +271,9 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
         
 
-        borrowNumberLimit[19] = 524288;
-        borrowNumberLimit[20] = 1048576;
-        borrowNumberLimit[21] = 2097152;
+        borrowBlocks[19] = 524288;
+        borrowBlocks[20] = 1048576;
+        borrowBlocks[21] = 2097152;
 
         liquidateThresholdBlockNumbers = 50;
         version = 1;
@@ -286,14 +284,14 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     function borrow(
         uint256 _pid,
         uint256 _token0,
-        uint256 _borrowNumber,
+        uint256 _borrowBlock,
         uint256 _supportPid
     ) public payable nonReentrant {
         require(block.timestamp >= launchTime, "!launchTime");
-        require(borrowNumberLimit[_borrowNumber] != 0, "!borrowNumberLimit");
+        require(borrowBlocks[_borrowBlock] != 0, "!borrowBlocks");
         require(msg.value == 0.1 ether, "!lendingSponsor");
 
-        _borrow(_pid, _supportPid, _borrowNumber, _token0);
+        _borrow(_pid, _supportPid, _borrowBlock, _token0);
     }
 
     function _getCurveInfo(
@@ -316,7 +314,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     function _borrow(
         uint256 _pid,
         uint256 _supportPid,
-        uint256 _borrowNumber,
+        uint256 _borrowBlocks,
         uint256 _token0
     ) internal returns (LendingParams memory) {
         PoolInfo storage pool = poolInfo[_pid];
@@ -336,7 +334,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             pool.supportPids[_supportPid],
             pool.lendingThreshold,
             pool.liquidateThreshold,
-            _borrowNumber
+            _borrowBlocks
         );
 
         IERC20(lendingParams.lpToken).safeTransferFrom(
@@ -354,7 +352,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             msg.sender,
             lendingParams.lendingAmount,
             lendingParams.lendingInterest,
-            _borrowNumber
+            _borrowBlocks
         );
 
         IConvexBooster(convexBooster).depositFor(
@@ -392,7 +390,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 lendingInterest: lendingParams.lendingInterest,
                 supportPid: pool.supportPids[_supportPid],
                 curveCoinId: pool.curveCoinIds[_supportPid],
-                borrowNumbers: borrowNumberLimit[_borrowNumber]
+                borrowNumbers: borrowBlocks[_borrowBlocks]
             })
         );
 
@@ -419,7 +417,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             _pid,
             pool.supportPids[_supportPid],
             pool.curveCoinIds[_supportPid],
-            borrowNumberLimit[_borrowNumber]
+            borrowBlocks[_borrowBlocks]
         );
 
         emit Borrow(
@@ -429,16 +427,15 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             _token0,
             lendingParams.token0Price,
             lendingParams.lendingAmount,
-            _borrowNumber
+            _borrowBlocks
         );
     }
 
     function _repayBorrow(
         bytes32 _lendingId,
         uint256 _amount,
-        bool isErc20,
         bool isFrozenTokens
-    ) internal {
+    ) internal nonReentrant {
         LendingInfo storage lendingInfo = lendings[_lendingId];
 
         require(lendingInfo.startedBlock > 0, "!invalid lendingId");
@@ -497,10 +494,11 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
         statistic.recentRepayAt = block.timestamp;
 
-        if (isErc20) {
-            address underlyToken = ISupplyBooster(supplyBooster)
-                .getLendingInfos(userLending.lendingId);
+        address underlyToken = ISupplyBooster(supplyBooster).getLendingUnderlyToken(
+            userLending.lendingId
+        );
 
+        if (underlyToken != 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
             IERC20(underlyToken).safeTransferFrom(
                 msg.sender,
                 supplyBooster,
@@ -536,22 +534,22 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     }
 
     function repayBorrow(bytes32 _lendingId) public payable {
-        _repayBorrow(_lendingId, msg.value, false, false);
+        _repayBorrow(_lendingId, msg.value, false);
     }
 
     function repayBorrowERC20(bytes32 _lendingId, uint256 _amount) public {
-        _repayBorrow(_lendingId, _amount, true, false);
+        _repayBorrow(_lendingId, _amount, false);
     }
 
     function repayBorrowAndFrozenTokens(bytes32 _lendingId) public payable {
-        _repayBorrow(_lendingId, msg.value, false, true);
+        _repayBorrow(_lendingId, msg.value, true);
     }
 
     function repayBorrowERC20AndFrozenTokens(
         bytes32 _lendingId,
         uint256 _amount
     ) public {
-        _repayBorrow(_lendingId, _amount, true, true);
+        _repayBorrow(_lendingId, _amount, true);
     }
 
     function liquidate(bytes32 _lendingId, uint256 _extraErc20Amount)
@@ -674,19 +672,16 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         lendingMarketPoolChecker = _v;
     }
 
-    function setBorrowNumberLimit(uint256 _number, uint256 _v)
-        public
-        onlyOwner
-    {
+    function setBorrowBlock(uint256 _number, uint256 _v) public onlyOwner {
         if (_v == 0) {
-            borrowNumberLimit[_number] = 0;
+            borrowBlocks[_number] = 0;
 
             return;
         }
 
         require(_number > 6 && _v > 64, "!_number or !_v");
 
-        borrowNumberLimit[_number] = _v;
+        borrowBlocks[_number] = _v;
     }
 
     function setLendingThreshold(uint256 _pid, uint256 _v) public onlyOwner {
@@ -727,11 +722,11 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         }
 
         require(
-            _lendingThreshold >= 100 && _lendingThreshold <= 300,
+            _lendingThreshold >= MIN_LENDING_THRESHOLD && _lendingThreshold <= MAX_LENDING_THRESHOLD,
             "!_lendingThreshold"
         );
         require(
-            _liquidateThreshold >= 50 && _liquidateThreshold <= 300,
+            _liquidateThreshold >= MIN_LIQUIDATE_THRESHOLD && _liquidateThreshold <= MAX_LIQUIDATE_THRESHOLD,
             "!_liquidateThreshold"
         );
         require(
@@ -773,17 +768,17 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 _offset,
         uint256 _size
     ) public view returns (bytes32[] memory, uint256) {
-        PoolInfo memory pool = poolInfo[_pid];
+        PoolInfo storage pool = poolInfo[_pid];
 
-        uint256 size = _offset + _size > pool.borrowIndex
-            ? pool.borrowIndex - _offset
+        uint256 size = _offset.add(_size) > pool.borrowIndex
+            ? pool.borrowIndex.sub(_offset)
             : _size;
         uint256 index;
 
         bytes32[] memory userLendingIds = new bytes32[](size);
 
         for (uint256 i = 0; i < size; i++) {
-            bytes32 userLendingId = poolLending[_pid][_offset + i];
+            bytes32 userLendingId = poolLending[_pid][_offset.add(i)];
 
             userLendingIds[index] = userLendingId;
             index++;
@@ -797,8 +792,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         view
         returns (uint256)
     {
-        LendingInfo memory lendingInfo = lendings[_lendingId];
-        UserLending memory userLending = userLendings[lendingInfo.user][
+        LendingInfo storage lendingInfo = lendings[_lendingId];
+        UserLending storage userLending = userLendings[lendingInfo.user][
             lendingInfo.userLendingIndex
         ];
 
@@ -812,7 +807,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         view
         returns (uint256[] memory)
     {
-        PoolInfo memory pool = poolInfo[_pid];
+        PoolInfo storage pool = poolInfo[_pid];
 
         return pool.supportPids;
     }
@@ -822,7 +817,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         view
         returns (int128)
     {
-        PoolInfo memory pool = poolInfo[_pid];
+        PoolInfo storage pool = poolInfo[_pid];
 
         return pool.curveCoinIds[_supportPid];
     }
@@ -832,7 +827,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         view
         returns (UserLendingState)
     {
-        LendingInfo memory lendingInfo = lendings[_lendingId];
+        LendingInfo storage lendingInfo = lendings[_lendingId];
 
         return lendingInfo.state;
     }
@@ -865,18 +860,18 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 getAmplificationFactor(utilizationRate)
             );
         } else {
-            lendflareTotalRate = supplyRate.sub(1e18);
+            lendflareTotalRate = supplyRate.sub(SUPPLY_RATE_DENOMINATOR);
         }
 
         uint256 lendingAmount = (token0Price *
-            1e18 *
-            (1000 - _lendingThreshold - _liquidateThreshold)) /
-            (1e18 + lendflareTotalRate) /
-            1000;
+            SUPPLY_RATE_DENOMINATOR *
+            (THRESHOLD_DENOMINATOR - _lendingThreshold - _liquidateThreshold)) /
+            (SUPPLY_RATE_DENOMINATOR + lendflareTotalRate) /
+            THRESHOLD_DENOMINATOR;
 
         // lendingInterest
         uint256 lendlareInterest = lendingAmount.mul(lendflareTotalRate).div(
-            1e18
+            SUPPLY_RATE_DENOMINATOR
         );
         // uint256 borrowAmount = lendingAmount.sub(lendlareInterest);
         // uint256 repayBorrowAmount = lendingAmount;

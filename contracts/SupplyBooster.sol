@@ -58,6 +58,9 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         LendingInfoState state;
     }
 
+    uint256 public constant FEE_PERCENT = 10;
+    uint256 public constant PERCENT_DENOMINATOR = 100;
+
     PoolInfo[] public poolInfo;
 
     uint256 public interestPercent;
@@ -66,7 +69,6 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     mapping(bytes32 => LendingInfo) public lendingInfos;
     mapping(uint256 => uint256) public interestTotal;
 
-    event Minted(address indexed user, uint256 indexed pid, uint256 amount);
     event Deposited(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdrawn(address indexed user, uint256 indexed pid, uint256 amount);
 
@@ -85,7 +87,6 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         uint256 lendingInterest,
         bool isErc20
     );
-    event RecycleCToken(bytes32 indexed lendingId, uint256 cToken);
     event Liquidate(
         bytes32 indexed lendingId,
         uint256 lendingAmount,
@@ -93,7 +94,6 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     );
     event Initialized(address indexed thisAddress);
     event ToggleShutdownPool(uint256 pid, bool shutdown);
-    event NewInterest(uint256 pid, uint256 amount, uint256 time);
     event SetOwner(address owner);
 
     modifier onlyOwner() {
@@ -234,11 +234,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     function toggleShutdownPool(uint256 _pid) public onlyOwner {
         PoolInfo storage pool = poolInfo[_pid];
 
-        if (pool.shutdown) {
-            pool.shutdown = false;
-        } else {
-            pool.shutdown = true;
-        }
+        pool.shutdown = !pool.shutdown;
 
         if (extraReward != address(0)) {
             ISupplyPoolExtraReward(extraReward).shutdownPool(
@@ -250,11 +246,12 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         emit ToggleShutdownPool(_pid, pool.shutdown);
     }
 
-    function _deposit(uint256 _pid, uint256 _amount) internal {
+    function _deposit(uint256 _pid, uint256 _amount) internal nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
 
         require(!pool.shutdown, "!shutdown");
         require(_amount > 0, "!_amount");
+        require(!pool.isErc20 && msg.value == _amount, "!_amount");
 
         if (pool.isErc20) {
             IERC20(pool.underlyToken).safeTransferFrom(
@@ -269,7 +266,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             );
         } else {
             ISupplyTreasuryFund(pool.supplyTreasuryFund).depositFor{
-                value: msg.value
+                value: _amount
             }(msg.sender);
         }
 
@@ -334,6 +331,8 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             ISupplyPoolExtraReward(extraReward).afterWithdraw(_pid, msg.sender);
         }
 
+        emit Withdrawn(msg.sender, _pid, _amount);
+
         return true;
     }
 
@@ -373,7 +372,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
     function getRewards(uint256[] memory _pids) public nonReentrant {
         for (uint256 i = 0; i < _pids.length; i++) {
-            PoolInfo memory pool = poolInfo[_pids[i]];
+            PoolInfo storage pool = poolInfo[_pids[i]];
 
             if (pool.shutdown) continue;
 
@@ -400,7 +399,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
     function setTeamFeeAddress(address _v) public {
         require(msg.sender == teamFeeAddress, "!teamAddress");
-        require(teamFeeAddress != address(0), "!teamFeeAddress");
+        require(_v != address(0), "!_v");
 
         teamFeeAddress = payable(_v);
     }
@@ -419,8 +418,10 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             uint256
         )
     {
-        uint256 fee = _fee ? _bal.mul(10).div(100) : 0;
-        uint256 interest = _bal.sub(fee).mul(interestPercent).div(100);
+        uint256 fee = _fee ? _bal.mul(FEE_PERCENT).div(PERCENT_DENOMINATOR) : 0;
+        uint256 interest = _bal.sub(fee).mul(interestPercent).div(
+            PERCENT_DENOMINATOR
+        );
         uint256 extra = _bal.sub(fee).sub(interest);
 
         if (!_extra) extra = 0;
@@ -588,9 +589,8 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         bytes32 _lendingId,
         address _user,
         uint256 _lendingAmount,
-        uint256 _lendingInterest,
-        bool _isErc20
-    ) internal {
+        uint256 _lendingInterest
+    ) internal nonReentrant {
         LendingInfo storage lendingInfo = lendingInfos[_lendingId];
         PoolInfo memory pool = poolInfo[lendingInfo.pid];
 
@@ -604,7 +604,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             _lendingInterest
         );
 
-        if (_isErc20) {
+        if (pool.isErc20) {
             sendToken(
                 pool.underlyToken,
                 pool.supplyTreasuryFund,
@@ -627,7 +627,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             _user,
             _lendingAmount,
             _lendingInterest,
-            _isErc20
+            pool.isErc20
         );
     }
 
@@ -636,7 +636,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address _user,
         uint256 _lendingInterest
     ) external payable onlyLendingMarket nonReentrant {
-        _repayBorrow(_lendingId, _user, msg.value, _lendingInterest, false);
+        _repayBorrow(_lendingId, _user, msg.value, _lendingInterest);
     }
 
     function repayBorrow(
@@ -645,7 +645,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         uint256 _lendingAmount,
         uint256 _lendingInterest
     ) external onlyLendingMarket {
-        _repayBorrow(_lendingId, _user, _lendingAmount, _lendingInterest, true);
+        _repayBorrow(_lendingId, _user, _lendingAmount, _lendingInterest);
     }
 
     function liquidate(
@@ -693,7 +693,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             sendBalanceEther(lendingInfo.pid, bal, true, true, true);
         }
 
-        lendingInfo.state = LendingInfoState.UNLOCK;
+        lendingInfo.state = LendingInfoState.LIQUIDATE;
 
         emit Liquidate(_lendingId, _lendingAmount, _lendingInterest);
     }
@@ -727,7 +727,11 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
                 .getBorrowRatePerBlock();
     }
 
-    function getLendingInfos(bytes32 _lendingId) public view returns (address) {
+    function getLendingUnderlyToken(bytes32 _lendingId)
+        public
+        view
+        returns (address)
+    {
         LendingInfo memory lendingInfo = lendingInfos[_lendingId];
 
         return (lendingInfo.underlyToken);
