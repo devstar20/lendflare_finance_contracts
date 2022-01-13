@@ -17,14 +17,6 @@ import "@openzeppelin/contracts/proxy/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-interface ILendingMarketPoolChecker {
-    function checker(
-        uint256 _convexBoosterPid,
-        uint256[] memory _supplyBoosterPids,
-        int128[] memory _curveCoinIds
-    ) external view returns (bool);
-}
-
 interface IConvexBooster {
     function liquidate(
         uint256 _convexPid,
@@ -128,7 +120,6 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     address public lendingSponsor;
 
     uint256 public launchTime;
-    address public lendingMarketPoolChecker;
     uint256 public liquidateThresholdBlockNumbers;
     uint256 public version;
 
@@ -200,7 +191,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     uint256 public constant MAX_LIQUIDATE_THRESHOLD = 300;
     uint256 public constant SUPPLY_RATE_DENOMINATOR = 1e18;
     uint256 public constant THRESHOLD_DENOMINATOR = 1000;
-
+    uint256 public constant BLOCKS_PER_YEAR = 2102400; // Reference Compound WhitePaperInterestRateModel contract
+    uint256 public constant BLOCKS_PER_DAY = 5760;
     // user address => container
     mapping(address => UserLending[]) public userLendings;
     // lending id => user address
@@ -209,8 +201,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     mapping(uint256 => mapping(uint256 => bytes32)) public poolLending;
     mapping(bytes32 => BorrowInfo) public borrowInfos;
     mapping(bytes32 => Statistic) public myStatistics;
-    // number => block numbers
-    mapping(uint256 => uint256) public borrowBlocks;
+    // number => bool
+    mapping(uint256 => bool) public borrowBlocks;
 
     event LendingBase(
         bytes32 indexed lendingId,
@@ -271,9 +263,9 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
         
 
-        borrowBlocks[19] = 524288;
-        borrowBlocks[20] = 1048576;
-        borrowBlocks[21] = 2097152;
+        borrowBlocks[BLOCKS_PER_DAY * 90] = true;
+        borrowBlocks[BLOCKS_PER_DAY * 180] = true;
+        borrowBlocks[BLOCKS_PER_YEAR] = true;
 
         liquidateThresholdBlockNumbers = 50;
         version = 1;
@@ -288,7 +280,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 _supportPid
     ) public payable nonReentrant {
         require(block.timestamp >= launchTime, "!launchTime");
-        require(borrowBlocks[_borrowBlock] != 0, "!borrowBlocks");
+        require(borrowBlocks[_borrowBlock], "!borrowBlocks");
         require(msg.value == 0.1 ether, "!lendingSponsor");
 
         _borrow(_pid, _supportPid, _borrowBlock, _token0);
@@ -390,7 +382,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 lendingInterest: lendingParams.lendingInterest,
                 supportPid: pool.supportPids[_supportPid],
                 curveCoinId: pool.curveCoinIds[_supportPid],
-                borrowNumbers: borrowBlocks[_borrowBlocks]
+                borrowNumbers: _borrowBlocks
             })
         );
 
@@ -417,7 +409,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             _pid,
             pool.supportPids[_supportPid],
             pool.curveCoinIds[_supportPid],
-            borrowBlocks[_borrowBlocks]
+            _borrowBlocks
         );
 
         emit Borrow(
@@ -494,9 +486,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
         statistic.recentRepayAt = block.timestamp;
 
-        address underlyToken = ISupplyBooster(supplyBooster).getLendingUnderlyToken(
-            userLending.lendingId
-        );
+        address underlyToken = ISupplyBooster(supplyBooster)
+            .getLendingUnderlyToken(userLending.lendingId);
 
         if (underlyToken != 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
             IERC20(underlyToken).safeTransferFrom(
@@ -666,22 +657,14 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         liquidateThresholdBlockNumbers = _v;
     }
 
-    function setLendingMarketPoolChecker(address _v) public onlyOwner {
-        require(_v != address(0), "!_v");
+    function setBorrowBlock(uint256 _number, bool _state) public onlyOwner {
+        require(
+            _number.sub(liquidateThresholdBlockNumbers) >
+                liquidateThresholdBlockNumbers,
+            "!_number"
+        );
 
-        lendingMarketPoolChecker = _v;
-    }
-
-    function setBorrowBlock(uint256 _number, uint256 _v) public onlyOwner {
-        if (_v == 0) {
-            borrowBlocks[_number] = 0;
-
-            return;
-        }
-
-        require(_number > 6 && _v > 64, "!_number or !_v");
-
-        borrowBlocks[_number] = _v;
+        borrowBlocks[_number] = _state;
     }
 
     function setLendingThreshold(uint256 _pid, uint256 _v) public onlyOwner {
@@ -714,19 +697,14 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 _lendingThreshold,
         uint256 _liquidateThreshold
     ) public onlyOwner {
-        if (lendingMarketPoolChecker != address(0)) {
-            bool checkerState = ILendingMarketPoolChecker(
-                lendingMarketPoolChecker
-            ).checker(_convexBoosterPid, _supplyBoosterPids, _curveCoinIds);
-            require(checkerState, "!checkerState");
-        }
-
         require(
-            _lendingThreshold >= MIN_LENDING_THRESHOLD && _lendingThreshold <= MAX_LENDING_THRESHOLD,
+            _lendingThreshold >= MIN_LENDING_THRESHOLD &&
+                _lendingThreshold <= MAX_LENDING_THRESHOLD,
             "!_lendingThreshold"
         );
         require(
-            _liquidateThreshold >= MIN_LIQUIDATE_THRESHOLD && _liquidateThreshold <= MAX_LIQUIDATE_THRESHOLD,
+            _liquidateThreshold >= MIN_LIQUIDATE_THRESHOLD &&
+                _liquidateThreshold <= MAX_LIQUIDATE_THRESHOLD,
             "!_liquidateThreshold"
         );
         require(
@@ -899,16 +877,36 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     function getSupplyRate(uint256 _supplyBlockRate, uint256 n)
         public
         pure
-        returns (uint256)
+        returns (
+            uint256 total // _supplyBlockRate and the result are scaled to 1e18
+        )
     {
-        _supplyBlockRate = _supplyBlockRate + (10**18);
+        uint256 term = 1e18; // term0 = xn, term1 = n(n-1)/2! * x^2, term2 = term1 * (n - 2) / (i + 1) * x
+        uint256 result = 1e18; // partial sum of terms
+        uint256 MAX_TERMS = 10; // up to MAX_TERMS are calculated, the error is negligible
 
-        for (uint256 i = 1; i <= n; i++) {
-            _supplyBlockRate = (_supplyBlockRate**2) / (10**18);
+        for (uint256 i = 0; i < MAX_TERMS && i < n; ++i) {
+            term = term.mul(n - i).div(i + 1).mul(_supplyBlockRate).div(1e18);
+
+            total = total.add(term);
         }
 
-        return _supplyBlockRate;
+        total = total.add(result);
     }
+
+    // function getSupplyRate(uint256 _supplyBlockRate, uint256 n)
+    //     public
+    //     pure
+    //     returns (uint256)
+    // {
+    //     _supplyBlockRate = _supplyBlockRate + (10**18);
+
+    //     for (uint256 i = 1; i <= n; i++) {
+    //         _supplyBlockRate = (_supplyBlockRate**2) / (10**18);
+    //     }
+
+    //     return _supplyBlockRate;
+    // }
 
     function getAmplificationFactor(uint256 _utilizationRate)
         public
