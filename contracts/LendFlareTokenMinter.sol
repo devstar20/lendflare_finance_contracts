@@ -15,9 +15,9 @@ pragma solidity =0.6.12;
 import "@openzeppelin/contracts/math/SafeMath.sol";
 
 interface ILiquidityGauge {
-    function user_checkpoint(address _for) external;
+    function updateReward(address _for) external;
 
-    function integrate_fraction(address _for) external view returns (uint256);
+    function totalAccrued(address _for) external view returns (uint256);
 }
 
 interface ILendFlareToken {
@@ -42,11 +42,9 @@ contract LendFlareTokenMinter {
 
     function _mint_for(address gauge_addr, address _for) internal {
         if (block.timestamp >= launchTime) {
-            ILiquidityGauge(gauge_addr).user_checkpoint(_for);
+            ILiquidityGauge(gauge_addr).updateReward(_for);
 
-            uint256 total_mint = ILiquidityGauge(gauge_addr).integrate_fraction(
-                _for
-            );
+            uint256 total_mint = ILiquidityGauge(gauge_addr).totalAccrued(_for);
             uint256 to_mint = total_mint - minted[_for][gauge_addr];
 
             if (to_mint != 0) {
@@ -64,8 +62,6 @@ contract LendFlareTokenMinter {
 
     function mint_many(address[8] memory gauge_addrs) public {
         for (uint256 i = 0; i < gauge_addrs.length; i++) {
-            if (gauge_addrs[i] == address(0)) break;
-
             _mint_for(gauge_addrs[i], msg.sender);
         }
     }

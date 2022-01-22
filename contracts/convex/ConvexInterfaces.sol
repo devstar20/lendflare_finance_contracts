@@ -12,7 +12,9 @@ LendFlare.finance
 
 pragma solidity =0.6.12;
 
-interface IConvexBooster {
+import "./IConvexBooster.sol";
+
+interface IOriginConvexBooster {
     function deposit( uint256 _pid, uint256 _amount, bool _stake ) external returns (bool);
     function withdraw(uint256 _pid, uint256 _amount) external returns(bool);
     function claimStashToken(address _token, address _rewardAddress, address _lfRewardAddress, uint256 _rewards) external;
@@ -20,14 +22,6 @@ interface IConvexBooster {
     function isShutdown() external view returns(bool);
     function minter() external view returns(address);
     function earmarkRewards(uint256) external returns(bool);
-}
-
-interface IConvexStaker {
-    function deposit( address _sender, uint256 _pid, address _lpToken, uint256 _amount,address _rewardPool ) external;
-    function withdraw( address _sender, uint256 _pid, address _lpToken, uint256 _amount,address _rewardPool ) external;
-    function liquidate( address _liquidater, address _liquidateSender, uint256 _pid, address _lpToken, uint256 _amount, address _rewardPool ) external;
-    function earmarkRewards(uint256,address _rewardPool) external returns(bool);
-    function poolInfo(uint256) external view returns(address,address,address,address,address, bool);
 }
 
 interface IOriginConvexRewardPool {
@@ -74,14 +68,6 @@ interface ICurveSwap {
     /* function remove_liquidity(uint256 _token_amount, uint256[] memory min_amounts) external; */
     function coins(uint256 _coinId) external view returns(address);
     function balances(uint256 _coinId) external view returns(uint256);
-}
-
-interface IConvexStashRewardPool {
-    function earned(address account) external view returns (uint256);
-    function getReward() external;
-    function getReward(address _account) external;
-    function donate(uint256 _amount) external payable returns (bool);
-    function queueNewRewards(uint256 _rewards) external;
 }
 
 interface ICurveAddressProvider{

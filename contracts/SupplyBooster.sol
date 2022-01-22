@@ -17,7 +17,8 @@ import "@openzeppelin/contracts/proxy/Initializable.sol";
 import "./common/IVirtualBalanceWrapper.sol";
 import "./supply/SupplyInterfaces.sol";
 
-contract SupplyBooster is Initializable, ReentrancyGuard {
+contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
+    using Address for address payable;
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
@@ -30,7 +31,9 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
     address payable public teamFeeAddress;
     address public lendingMarket;
+
     address public owner;
+    address public governance;
 
     struct PoolInfo {
         address underlyToken;
@@ -58,6 +61,10 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         LendingInfoState state;
     }
 
+    address public constant ZERO_ADDRESS =
+        0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    uint256 public constant MIN_INTEREST_PERCENT = 0;
+    uint256 public constant MAX_INTEREST_PERCENT = 100;
     uint256 public constant FEE_PERCENT = 10;
     uint256 public constant PERCENT_DENOMINATOR = 100;
 
@@ -65,7 +72,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
     uint256 public interestPercent;
 
-    mapping(uint256 => uint256) public frozenTokens; /* pool id => amount */
+    mapping(uint256 => uint256) public freezeTokens; /* pool id => amount */
     mapping(bytes32 => LendingInfo) public lendingInfos;
     mapping(uint256 => uint256) public interestTotal;
 
@@ -95,9 +102,18 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     event Initialized(address indexed thisAddress);
     event ToggleShutdownPool(uint256 pid, bool shutdown);
     event SetOwner(address owner);
+    event SetGovernance(address governance);
 
     modifier onlyOwner() {
         require(owner == msg.sender, "SupplyBooster: caller is not the owner");
+        _;
+    }
+
+    modifier onlyGovernance() {
+        require(
+            governance == msg.sender,
+            "SupplyBooster: caller is not the governance"
+        );
         _;
     }
 
@@ -114,6 +130,12 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         owner = _owner;
 
         emit SetOwner(_owner);
+    }
+
+    function setGovernance(address _governance) public onlyOwner {
+        governance = _governance;
+
+        emit SetGovernance(_governance);
     }
 
     function setLendingMarket(address _v) public onlyOwner {
@@ -135,6 +157,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address payable _teamFeeAddress
     ) public initializer {
         owner = _owner;
+        governance = _owner;
         virtualBalanceWrapperFactory = _virtualBalanceWrapperFactory;
         supplyRewardFactory = _supplyRewardFactory;
         teamFeeAddress = _teamFeeAddress;
@@ -147,13 +170,10 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
     function addSupplyPool(address _underlyToken, address _supplyTreasuryFund)
         public
-        onlyOwner
+        onlyGovernance
         returns (bool)
     {
-        bool isErc20 = _underlyToken ==
-            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE
-            ? false
-            : true;
+        bool isErc20 = _underlyToken == ZERO_ADDRESS ? false : true;
         address virtualBalance = IVirtualBalanceWrapperFactory(
             virtualBalanceWrapperFactory
         ).createWrapper(address(this));
@@ -237,7 +257,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         pool.shutdown = !pool.shutdown;
 
         if (extraReward != address(0)) {
-            ISupplyPoolExtraReward(extraReward).shutdownPool(
+            ISupplyPoolExtraReward(extraReward).toggleShutdownPool(
                 _pid,
                 pool.shutdown
             );
@@ -249,11 +269,14 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     function _deposit(uint256 _pid, uint256 _amount) internal nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
 
-        require(!pool.shutdown, "!shutdown");
-        require(_amount > 0, "!_amount");
+        require(!pool.shutdown, "SupplyBooster: !shutdown");
+        require(_amount > 0, "SupplyBooster: !_amount");
 
         if (!pool.isErc20) {
-            require(msg.value == _amount, "!msg.value == _amount");
+            require(
+                msg.value == _amount,
+                "SupplyBooster: !msg.value == _amount"
+            );
         }
 
         if (pool.isErc20) {
@@ -309,7 +332,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         uint256 depositAmount = IVirtualBalanceWrapper(pool.virtualBalance)
             .balanceOf(msg.sender);
 
-        require(_amount <= depositAmount, "!depositAmount");
+        require(_amount <= depositAmount, "SupplyBooster: !depositAmount");
 
         IBaseReward(pool.rewardInterestPool).withdraw(msg.sender);
 
@@ -394,8 +417,11 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         }
     }
 
-    function setInterestPercent(uint256 _v) public onlyOwner {
-        require(_v >= 0 && _v <= 100, "!_v");
+    function setInterestPercent(uint256 _v) public onlyGovernance {
+        require(
+            _v >= MIN_INTEREST_PERCENT && _v <= MAX_INTEREST_PERCENT,
+            "!_v"
+        );
 
         interestPercent = _v;
     }
@@ -438,12 +464,8 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address _receiver,
         uint256 _amount
     ) internal {
-        if (
-            _token == address(0) ||
-            _token == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE
-        ) {
-            (bool sent, ) = _receiver.call{value: _amount, gas: 50000}("");
-            require(sent, "failed to send native token");
+        if (_token == address(0) || _token == ZERO_ADDRESS) {
+            payable(_receiver).sendValue(_amount);
         } else {
             IERC20(_token).safeTransfer(_receiver, _amount);
         }
@@ -458,7 +480,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     ) internal {
         if (_bal == 0) return;
 
-        PoolInfo memory pool = poolInfo[_pid];
+        PoolInfo storage pool = poolInfo[_pid];
 
         (uint256 fee, uint256 interest, uint256 extra) = calculateAmount(
             _bal,
@@ -495,7 +517,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     ) internal {
         if (_bal == 0) return;
 
-        PoolInfo memory pool = poolInfo[_pid];
+        PoolInfo storage pool = poolInfo[_pid];
 
         (uint256 fee, uint256 interest, uint256 extra) = calculateAmount(
             _bal,
@@ -534,10 +556,10 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         uint256 _lendingAmount,
         uint256 _lendingInterest,
         uint256 _borrowNumbers
-    ) public onlyLendingMarket nonReentrant {
-        PoolInfo memory pool = poolInfo[_pid];
+    ) public override onlyLendingMarket nonReentrant {
+        PoolInfo storage pool = poolInfo[_pid];
 
-        require(!pool.shutdown, "!shutdown");
+        require(!pool.shutdown, "SupplyBooster: !shutdown");
 
         ISupplyTreasuryFund(pool.supplyTreasuryFund).borrow(
             _user,
@@ -545,7 +567,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
             _lendingInterest
         );
 
-        frozenTokens[_pid] = frozenTokens[_pid].add(_lendingAmount);
+        freezeTokens[_pid] = freezeTokens[_pid].add(_lendingAmount);
         interestTotal[_pid] = interestTotal[_pid].add(_lendingInterest);
 
         LendingInfo memory lendingInfo;
@@ -593,14 +615,20 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address _user,
         uint256 _lendingAmount,
         uint256 _lendingInterest
-    ) internal {
+    ) internal nonReentrant {
         LendingInfo storage lendingInfo = lendingInfos[_lendingId];
-        PoolInfo memory pool = poolInfo[lendingInfo.pid];
+        PoolInfo storage pool = poolInfo[lendingInfo.pid];
 
-        require(lendingInfo.state == LendingInfoState.LOCK, "!LOCK");
-        require(_lendingAmount >= lendingInfo.lendingAmount, "!_lendingAmount");
+        require(
+            lendingInfo.state == LendingInfoState.LOCK,
+            "SupplyBooster: !LOCK"
+        );
+        require(
+            _lendingAmount >= lendingInfo.lendingAmount,
+            "SupplyBooster: !_lendingAmount"
+        );
 
-        frozenTokens[lendingInfo.pid] = frozenTokens[lendingInfo.pid].sub(
+        freezeTokens[lendingInfo.pid] = freezeTokens[lendingInfo.pid].sub(
             lendingInfo.lendingAmount
         );
         interestTotal[lendingInfo.pid] = interestTotal[lendingInfo.pid].sub(
@@ -638,7 +666,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         bytes32 _lendingId,
         address _user,
         uint256 _lendingInterest
-    ) external payable onlyLendingMarket nonReentrant {
+    ) external payable override onlyLendingMarket {
         _repayBorrow(_lendingId, _user, msg.value, _lendingInterest);
     }
 
@@ -647,26 +675,35 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         address _user,
         uint256 _lendingAmount,
         uint256 _lendingInterest
-    ) external onlyLendingMarket nonReentrant {
+    ) external override onlyLendingMarket {
         _repayBorrow(_lendingId, _user, _lendingAmount, _lendingInterest);
     }
 
-    function liquidate(
-        bytes32 _lendingId,
-        uint256 _lendingAmount,
-        uint256 _lendingInterest
-    ) public payable onlyLendingMarket nonReentrant returns (address) {
+    function liquidate(bytes32 _lendingId, uint256 _lendingInterest)
+        public
+        payable
+        override
+        onlyLendingMarket
+        nonReentrant
+        returns (address)
+    {
         LendingInfo storage lendingInfo = lendingInfos[_lendingId];
-        PoolInfo memory pool = poolInfo[lendingInfo.pid];
+        PoolInfo storage pool = poolInfo[lendingInfo.pid];
 
         if (!pool.isErc20) {
-            require(msg.value > 0, "msg.value must be greater than 0");
+            require(
+                msg.value > 0,
+                "SupplyBooster: msg.value must be greater than 0"
+            );
         }
 
-        require(lendingInfo.state == LendingInfoState.LOCK, "!LOCK");
+        require(
+            lendingInfo.state == LendingInfoState.LOCK,
+            "SupplyBooster: !LOCK"
+        );
 
-        frozenTokens[lendingInfo.pid] = frozenTokens[lendingInfo.pid].sub(
-            _lendingAmount
+        freezeTokens[lendingInfo.pid] = freezeTokens[lendingInfo.pid].sub(
+            lendingInfo.lendingAmount
         );
         interestTotal[lendingInfo.pid] = interestTotal[lendingInfo.pid].sub(
             _lendingInterest
@@ -698,7 +735,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
 
         lendingInfo.state = LendingInfoState.LIQUIDATE;
 
-        emit Liquidate(_lendingId, _lendingAmount, _lendingInterest);
+        emit Liquidate(_lendingId, lendingInfo.lendingAmount, _lendingInterest);
     }
 
     /* view functions */
@@ -706,24 +743,34 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
         return poolInfo.length;
     }
 
-    function getUtilizationRate(uint256 _pid) public view returns (uint256) {
-        PoolInfo memory pool = poolInfo[_pid];
+    function getUtilizationRate(uint256 _pid)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        PoolInfo storage pool = poolInfo[_pid];
 
         uint256 currentBal = ISupplyTreasuryFund(pool.supplyTreasuryFund)
             .getBalance();
 
-        if (currentBal == 0 || frozenTokens[_pid] == 0) {
+        if (currentBal.add(freezeTokens[_pid]) == 0) {
             return 0;
         }
 
         return
-            frozenTokens[_pid].mul(1e18).div(
-                currentBal.add(frozenTokens[_pid])
+            freezeTokens[_pid].mul(1e18).div(
+                currentBal.add(freezeTokens[_pid])
             );
     }
 
-    function getBorrowRatePerBlock(uint256 _pid) public view returns (uint256) {
-        PoolInfo memory pool = poolInfo[_pid];
+    function getBorrowRatePerBlock(uint256 _pid)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        PoolInfo storage pool = poolInfo[_pid];
 
         return
             ISupplyTreasuryFund(pool.supplyTreasuryFund)
@@ -733,6 +780,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard {
     function getLendingUnderlyToken(bytes32 _lendingId)
         public
         view
+        override
         returns (address)
     {
         LendingInfo memory lendingInfo = lendingInfos[_lendingId];

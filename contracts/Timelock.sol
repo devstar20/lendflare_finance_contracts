@@ -79,7 +79,7 @@ contract Timelock {
     function setDelay(uint256 delay_) public {
         require(
             msg.sender == address(this),
-            "Timelock::_setDelay: Call must come from Timelock."
+            "Timelock::setDelay: Call must come from Timelock."
         );
 
         _setDelay(delay_);

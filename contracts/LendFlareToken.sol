@@ -14,8 +14,9 @@ pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/proxy/Initializable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract LendFlareToken is Initializable {
+contract LendFlareToken is Initializable, IERC20 {
     using SafeMath for uint256;
 
     mapping(address => uint256) private _balances;
@@ -25,10 +26,9 @@ contract LendFlareToken is Initializable {
 
     string private _name;
     string private _symbol;
-    uint256 private _decimals;
+    uint8 private _decimals;
 
-    uint256 public constant ONE_DAY = 86400;
-    uint256 public constant YEAR = ONE_DAY * 365;
+    uint256 public constant YEAR = 1 days * 365;
     uint256 public constant INITIAL_RATE = (274815283 * 10**18) / YEAR; // leading to 43% premine
     uint256 public constant RATE_REDUCTION_TIME = YEAR;
     uint256 public constant RATE_REDUCTION_COEFFICIENT = 1189207115002721024; // 2 ** (1/4) * 1e18
@@ -65,11 +65,11 @@ contract LendFlareToken is Initializable {
         owner = _owner;
 
         // total = 1303030301 * 10**_decimals
-        uint256 liquidity_transformer = 909090909 * 10**_decimals;
-        uint256 official_team = 90909090 * 10**_decimals;
-        uint256 merkle_airdrop = 30303030 * 10**_decimals;
-        uint256 early_liquidity_reward = 151515151 * 10**_decimals;
-        uint256 community = 121212121 * 10**_decimals;
+        uint256 liquidity_transformer = 909090909 * 10**18;
+        uint256 official_team = 90909090 * 10**18;
+        uint256 merkle_airdrop = 30303030 * 10**18;
+        uint256 early_liquidity_reward = 151515151 * 10**18;
+        uint256 community = 121212121 * 10**18;
 
         uint256 init_supply = liquidity_transformer
             .add(official_team)
@@ -86,7 +86,7 @@ contract LendFlareToken is Initializable {
         emit Transfer(address(0), _multiSigUser, early_liquidity_reward);
         emit Transfer(address(0), _multiSigUser, community);
 
-        start_epoch_time = block.timestamp + ONE_DAY - RATE_REDUCTION_TIME;
+        start_epoch_time = block.timestamp - RATE_REDUCTION_TIME;
 
         
 
@@ -140,35 +140,27 @@ contract LendFlareToken is Initializable {
     }
 
     function start_epoch_time_write() external returns (uint256) {
-        uint256 _start_epoch_time = start_epoch_time;
-
-        if (block.timestamp >= _start_epoch_time + RATE_REDUCTION_TIME) {
+        if (block.timestamp >= start_epoch_time + RATE_REDUCTION_TIME) {
             _update_mining_parameters();
 
             return start_epoch_time;
         }
 
-        return _start_epoch_time;
+        return start_epoch_time;
     }
 
     function future_epoch_time_write() external returns (uint256) {
-        uint256 _start_epoch_time = start_epoch_time;
-
-        if (block.timestamp >= _start_epoch_time + RATE_REDUCTION_TIME) {
+        if (block.timestamp >= start_epoch_time + RATE_REDUCTION_TIME) {
             _update_mining_parameters();
 
             return start_epoch_time + RATE_REDUCTION_TIME;
         }
 
-        return _start_epoch_time + RATE_REDUCTION_TIME;
-    }
-
-    function _available_supply() internal view returns (uint256) {
-        return start_epoch_supply + (block.timestamp - start_epoch_time) * rate;
+        return start_epoch_time + RATE_REDUCTION_TIME;
     }
 
     function available_supply() public view returns (uint256) {
-        return _available_supply();
+        return start_epoch_supply + (block.timestamp - start_epoch_time) * rate;
     }
 
     function mintable_in_timeframe(uint256 start, uint256 end)
@@ -244,21 +236,28 @@ contract LendFlareToken is Initializable {
         return _symbol;
     }
 
-    function decimals() public view virtual returns (uint256) {
+    function decimals() public view virtual returns (uint8) {
         return _decimals;
     }
 
-    function totalSupply() public view virtual returns (uint256) {
+    function totalSupply() public view virtual override returns (uint256) {
         return _totalSupply;
     }
 
-    function balanceOf(address account) public view virtual returns (uint256) {
+    function balanceOf(address account)
+        public
+        view
+        virtual
+        override
+        returns (uint256)
+    {
         return _balances[account];
     }
 
     function transfer(address recipient, uint256 amount)
         public
         virtual
+        override
         returns (bool)
     {
         _transfer(msg.sender, recipient, amount);
@@ -269,6 +268,7 @@ contract LendFlareToken is Initializable {
         public
         view
         virtual
+        override
         returns (uint256)
     {
         return _allowances[user][spender];
@@ -277,6 +277,7 @@ contract LendFlareToken is Initializable {
     function approve(address spender, uint256 amount)
         public
         virtual
+        override
         returns (bool)
     {
         _approve(msg.sender, spender, amount);
@@ -287,7 +288,7 @@ contract LendFlareToken is Initializable {
         address sender,
         address recipient,
         uint256 amount
-    ) public virtual returns (bool) {
+    ) public virtual override returns (bool) {
         _transfer(sender, recipient, amount);
         _approve(
             sender,
@@ -356,7 +357,7 @@ contract LendFlareToken is Initializable {
         _totalSupply = _totalSupply.add(amount);
 
         require(
-            _totalSupply <= _available_supply(),
+            _totalSupply <= available_supply(),
             "exceeds allowable mint amount"
         );
 

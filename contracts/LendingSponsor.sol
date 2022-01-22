@@ -12,10 +12,11 @@ LendFlare.finance
 
 pragma solidity =0.6.12;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 
-contract LendingSponsor {
+contract LendingSponsor is ReentrancyGuard {
     using Address for address payable;
     using SafeMath for uint256;
 
@@ -38,7 +39,6 @@ contract LendingSponsor {
 
     event AddSponsor(bytes32 sponsor, uint256 amount);
     event PayFee(bytes32 sponsor, address user, uint256 sponsorAmount);
-    event SetOwner(address owner);
 
     modifier onlyLendingMarket() {
         require(
@@ -54,12 +54,6 @@ contract LendingSponsor {
         _;
     }
 
-    function setOwner(address _owner) public onlyOwner {
-        owner = _owner;
-
-        emit SetOwner(_owner);
-    }
-
     constructor() public {
         owner = msg.sender;
     }
@@ -68,11 +62,14 @@ contract LendingSponsor {
         require(_v != address(0), "!_v");
 
         lendingMarket = _v;
+
+        owner = address(0);
     }
 
     function payFee(bytes32 _lendingId, address payable _user)
         public
         onlyLendingMarket
+        nonReentrant
     {
         LendingInfo storage lendingInfo = lendingInfos[_lendingId];
 
@@ -91,6 +88,7 @@ contract LendingSponsor {
         public
         payable
         onlyLendingMarket
+        nonReentrant
     {
         lendingInfos[_lendingId] = LendingInfo({
             user: _user,

@@ -14,10 +14,11 @@ pragma solidity =0.6.12;
 pragma experimental ABIEncoderV2;
 
 import "../common/IBaseReward.sol";
+import "./ISupplyBooster.sol";
 
 interface ISupplyPoolExtraReward {
     function addExtraReward( uint256 _pid, address _lpToken, address _virtualBalance, bool _isErc20) external;
-    function shutdownPool(uint256 _pid, bool _state) external;
+    function toggleShutdownPool(uint256 _pid, bool _state) external;
     function getRewards(uint256 _pid,address _for) external;
     function beforeStake(uint256 _pid, address _for) external;
     function afterStake(uint256 _pid, address _for) external;

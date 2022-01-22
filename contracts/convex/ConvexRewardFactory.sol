@@ -13,18 +13,18 @@ LendFlare.finance
 pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/math/Math.sol";
-import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./ConvexInterfaces.sol";
 import "../common/IVirtualBalanceWrapper.sol";
 
-contract ConvexRewardPool is ReentrancyGuard {
+contract ConvexRewardPool is ReentrancyGuard, IConvexRewardPool {
+    using Address for address payable;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
     address public rewardToken;
-    uint256 public duration = 7 days;
+    uint256 public constant duration = 7 days;
 
     address public owner;
     address public virtualBalance;
@@ -34,7 +34,7 @@ contract ConvexRewardPool is ReentrancyGuard {
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
 
-    address[] public extraRewards;
+    address[] public override extraRewards;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
@@ -73,11 +73,11 @@ contract ConvexRewardPool is ReentrancyGuard {
         return IVirtualBalanceWrapper(virtualBalance).balanceOf(_for);
     }
 
-    function extraRewardsLength() external view returns (uint256) {
+    function extraRewardsLength() external view override returns (uint256) {
         return extraRewards.length;
     }
 
-    function addExtraReward(address _reward) external returns (bool) {
+    function addExtraReward(address _reward) external override returns (bool) {
         require(
             msg.sender == owner,
             "ConvexRewardPool: !authorized addExtraReward"
@@ -115,27 +115,47 @@ contract ConvexRewardPool is ReentrancyGuard {
             );
     }
 
-    function earned(address account) public view returns (uint256) {
-        return
-            balanceOf(account)
-                .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
-                .div(1e18)
-                .add(rewards[account]);
+    function earned(address _for) public view override returns (uint256) {
+        uint256 total = balanceOf(_for)
+            .mul(rewardPerToken().sub(userRewardPerTokenPaid[_for]))
+            .div(1e18)
+            .add(rewards[_for]);
+
+        for (uint256 i = 0; i < extraRewards.length; i++) {
+            total = total.add(IConvexRewardPool(extraRewards[i]).earned(_for));
+        }
+
+        return total;
     }
 
-    function stake(address _for) public nonReentrant updateReward(_for) {
+    function stake(address _for)
+        public
+        override
+        nonReentrant
+        updateReward(_for)
+    {
         require(msg.sender == owner, "ConvexRewardPool: !authorized stake");
 
         emit Staked(_for);
     }
 
-    function withdraw(address _for) public nonReentrant updateReward(_for) {
+    function withdraw(address _for)
+        public
+        override
+        nonReentrant
+        updateReward(_for)
+    {
         require(msg.sender == owner, "ConvexRewardPool: !authorized withdraw");
 
         emit Withdrawn(_for);
     }
 
-    function getReward(address _for) public nonReentrant updateReward(_for) {
+    function getReward(address _for)
+        public
+        override
+        nonReentrant
+        updateReward(_for)
+    {
         uint256 reward = earned(_for);
 
         if (reward > 0) {
@@ -149,7 +169,7 @@ contract ConvexRewardPool is ReentrancyGuard {
                     "!address(this).balance"
                 );
 
-                payable(_for).transfer(reward);
+                payable(_for).sendValue(reward);
             }
 
             emit RewardPaid(_for, reward);
@@ -162,6 +182,7 @@ contract ConvexRewardPool is ReentrancyGuard {
 
     function notifyRewardAmount(uint256 reward)
         external
+        override
         updateReward(address(0))
     {
         require(

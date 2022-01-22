@@ -13,16 +13,18 @@ LendFlare.finance
 pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/math/Math.sol";
-import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./IVirtualBalanceWrapper.sol";
+import "./IBaseReward.sol";
 
-contract BaseReward {
+contract BaseReward is ReentrancyGuard, IBaseReward {
+    using Address for address payable;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
     address public rewardToken;
-    uint256 public duration = 7 days;
+    uint256 public constant duration = 7 days;
 
     address public owner;
     address public virtualBalance;
@@ -88,7 +90,7 @@ contract BaseReward {
             );
     }
 
-    function earned(address account) public view returns (uint256) {
+    function earned(address account) public view override returns (uint256) {
         return
             balanceOf(account)
                 .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
@@ -96,14 +98,14 @@ contract BaseReward {
                 .add(rewards[account]);
     }
 
-    function setOwner(address _owner) public {
+    function setOwner(address _owner) public override {
         require(msg.sender == owner, "BaseReward: !authorized setOwner");
         owner = _owner;
 
         emit SetOwner(_owner);
     }
 
-    function stake(address _for) public updateReward(_for) {
+    function stake(address _for) public override updateReward(_for) {
         require(
             msg.sender == owner || msg.sender == virtualBalance,
             "BaseReward: !authorized stake"
@@ -112,7 +114,7 @@ contract BaseReward {
         emit Staked(_for);
     }
 
-    function withdraw(address _for) public updateReward(_for) {
+    function withdraw(address _for) public override updateReward(_for) {
         require(
             msg.sender == owner || msg.sender == virtualBalance,
             "BaseReward: !authorized withdraw"
@@ -121,7 +123,12 @@ contract BaseReward {
         emit Withdrawn(_for);
     }
 
-    function getReward(address _for) public updateReward(_for) {
+    function getReward(address _for)
+        public
+        override
+        nonReentrant
+        updateReward(_for)
+    {
         uint256 reward = earned(_for);
 
         if (reward > 0) {
@@ -135,7 +142,7 @@ contract BaseReward {
                     "BaseReward: !address(this).balance"
                 );
 
-                payable(_for).transfer(reward);
+                payable(_for).sendValue(reward);
             }
 
             emit RewardPaid(_for, reward);
@@ -144,6 +151,7 @@ contract BaseReward {
 
     function notifyRewardAmount(uint256 reward)
         external
+        override
         updateReward(address(0))
     {
         require(

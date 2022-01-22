@@ -117,6 +117,7 @@ interface ISupplyRewardFactory {
 }
 
 contract SupplyTreasuryFundForCompound is ReentrancyGuard {
+    using Address for address payable;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -212,13 +213,15 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
             bal = address(this).balance;
 
             if (bal > 0) {
-                payable(owner).transfer(bal);
+                payable(owner).sendValue(bal);
             }
         }
 
         if (_setReward) {
             IBaseReward(rewardCompPool).setOwner(_newTreasuryFund);
         }
+
+        return bal;
     }
 
     function _depositFor(address _for, uint256 _amount) internal {
@@ -267,7 +270,9 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
 
         totalUnderlyToken = totalUnderlyToken.sub(_amount);
 
-        ICompound(lpToken).redeemUnderlying(_amount);
+        uint256 redeemState = ICompound(lpToken).redeemUnderlying(_amount);
+
+        require(redeemState == 0,"SupplyTreasuryFundForCompound: !redeemState");
 
         uint256 bal;
 
@@ -279,7 +284,7 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
             bal = address(this).balance;
 
             if (bal > 0) {
-                payable(_to).transfer(bal);
+                payable(_to).sendValue(bal);
             }
         }
 
@@ -290,11 +295,13 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         address _to,
         uint256 _lendingAmount,
         uint256 _lendingInterest
-    ) public onlyInitialized nonReentrant returns (uint256) {
+    ) public onlyInitialized nonReentrant onlyOwner returns (uint256) {
         totalUnderlyToken = totalUnderlyToken.sub(_lendingAmount);
         frozenUnderlyToken = frozenUnderlyToken.add(_lendingAmount);
 
-        ICompound(lpToken).redeemUnderlying(_lendingAmount);
+        uint256 redeemState = ICompound(lpToken).redeemUnderlying(_lendingAmount);
+
+        require(redeemState == 0,"SupplyTreasuryFundForCompound: !redeemState");
 
         if (isErc20) {
             IERC20(underlyToken).safeTransfer(
@@ -306,23 +313,23 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
                 IERC20(underlyToken).safeTransfer(owner, _lendingInterest);
             }
         } else {
-            payable(_to).transfer(_lendingAmount.sub(_lendingInterest));
+            payable(_to).sendValue(_lendingAmount.sub(_lendingInterest));
             if (_lendingInterest > 0) {
-                payable(owner).transfer(_lendingInterest);
+                payable(owner).sendValue(_lendingInterest);
             }
         }
 
         return _lendingInterest;
     }
 
-    function repayBorrow() public payable onlyInitialized nonReentrant {
+    function repayBorrow() public payable onlyInitialized nonReentrant onlyOwner {
         _mintEther(msg.value);
 
         totalUnderlyToken = totalUnderlyToken.add(msg.value);
         frozenUnderlyToken = frozenUnderlyToken.sub(msg.value);
     }
 
-    function repayBorrow(uint256 _lendingAmount) public onlyInitialized nonReentrant {
+    function repayBorrow(uint256 _lendingAmount) public onlyInitialized nonReentrant onlyOwner {
         IERC20(underlyToken).safeApprove(lpToken, 0);
         IERC20(underlyToken).safeApprove(lpToken, _lendingAmount);
 
@@ -366,7 +373,7 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
                     bal = address(this).balance;
 
                     if (bal > 0) {
-                        payable(owner).transfer(bal);
+                        payable(owner).sendValue(bal);
                     }
                 }
 
@@ -395,7 +402,7 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
                 bal = address(this).balance;
 
                 if (bal > 0) {
-                    payable(owner).transfer(bal);
+                    payable(owner).sendValue(bal);
                 }
             }
         }

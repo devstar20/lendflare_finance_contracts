@@ -14,15 +14,11 @@ pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 import "./supply/SupplyTreasuryFundForCompound.sol";
+import "./convex/IConvexBooster.sol";
 
 /* 
 This contract will be executed after the lending contracts is created and will become invalid in the future.
  */
-interface IConvexBooster {
-    function addConvexPool(uint256 _originConvexPid) external;
-
-    function setOwner(address _owner) external;
-}
 
 interface ISupplyBooster {
     function addSupplyPool(address _underlyToken, address _supplyTreasuryFund)
@@ -34,8 +30,8 @@ interface ISupplyBooster {
 interface ILendingMarket {
     function addMarketPool(
         uint256 _convexBoosterPid,
-        uint256[] memory _supplyBoosterPids,
-        int128[] memory _curveCoinIds,
+        uint256[] calldata _supplyBoosterPids,
+        int128[] calldata _curveCoinIds,
         uint256 _lendingThreshold,
         uint256 _liquidateThreshold
     ) external;

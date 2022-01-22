@@ -32,6 +32,7 @@ contract LendFlareTokenLocker {
     event Fund(address indexed recipient, uint256 amount);
     event Claim(address indexed recipient, uint256 amount);
     event ToggleDisable(address recipient, bool disabled);
+    event SetOwner(address owner);
 
     constructor(
         address _owner,
@@ -51,13 +52,15 @@ contract LendFlareTokenLocker {
         end_time = _end_time;
     }
 
-    function setOwner(address _owner) external {
+    function set_owner(address _owner) external {
         require(
             msg.sender == owner,
-            "LendFlareTokenLocker: !authorized setOwner"
+            "LendFlareTokenLocker: !authorized set_owner"
         );
 
         owner = _owner;
+
+        emit SetOwner(_owner);
     }
 
     function add_tokens(uint256 _amount) public {
@@ -105,33 +108,33 @@ contract LendFlareTokenLocker {
             "LendFlareTokenLocker: !authorized toggle_disable"
         );
 
-        bool is_disabled = disabled_at[_recipient] == 0;
+        bool is_enabled = disabled_at[_recipient] == 0;
 
-        if (is_disabled) {
+        if (is_enabled) {
             disabled_at[_recipient] = block.timestamp;
         } else {
             disabled_at[_recipient] = 0;
         }
 
-        emit ToggleDisable(_recipient, is_disabled);
+        emit ToggleDisable(_recipient, is_enabled);
     }
 
     function claim() public {
-        address addr = msg.sender;
-
-        uint256 t = disabled_at[addr];
+        address recipient = msg.sender;
+        uint256 t = disabled_at[recipient];
 
         if (t == 0) {
             t = block.timestamp;
         }
 
-        uint256 claimable = _total_vested_of(addr, t) - total_claimed[addr];
+        uint256 claimable = _total_vested_of(recipient, t) -
+            total_claimed[recipient];
 
-        total_claimed[addr] += claimable;
+        total_claimed[recipient] += claimable;
 
-        IERC20(token).safeTransfer(addr, claimable);
+        IERC20(token).safeTransfer(recipient, claimable);
 
-        emit Claim(addr, claimable);
+        emit Claim(recipient, claimable);
     }
 
     function _total_vested_of(address _recipient, uint256 _time)
@@ -141,46 +144,46 @@ contract LendFlareTokenLocker {
     {
         if (_time == 0) _time = block.timestamp;
 
-        uint256 start = start_time;
-        uint256 end = end_time;
         uint256 locked = initial_locked[_recipient];
 
-        if (_time < start) {
-            return 0;
-        }
-
-        return min((locked * (_time - start)) / (end - start), locked);
-    }
-
-    function _total_vested() internal view returns (uint256) {
-        uint256 start = start_time;
-        uint256 end = end_time;
-        uint256 locked = initial_locked_supply;
-
-        if (block.timestamp < start) {
+        if (_time < start_time) {
             return 0;
         }
 
         return
-            min((locked * (block.timestamp - start)) / (end - start), locked);
+            min(
+                (locked * (_time - start_time)) / (end_time - start_time),
+                locked
+            );
     }
 
     function vestedSupply() public view returns (uint256) {
-        return _total_vested();
+        uint256 locked = initial_locked_supply;
+
+        if (block.timestamp < start_time) {
+            return 0;
+        }
+
+        return
+            min(
+                (locked * (block.timestamp - start_time)) /
+                    (end_time - start_time),
+                locked
+            );
     }
 
     function lockedSupply() public view returns (uint256) {
-        return initial_locked_supply - _total_vested();
+        return initial_locked_supply - vestedSupply();
     }
 
-    function vestedOf(address _recipient) public view returns (uint256) {
-        return _total_vested_of(_recipient, block.timestamp);
-    }
+    function availableOf(address _recipient) public view returns (uint256) {
+        uint256 t = disabled_at[_recipient];
 
-    function balanceOf(address _recipient) public view returns (uint256) {
-        return
-            _total_vested_of(_recipient, block.timestamp) -
-            total_claimed[_recipient];
+        if (t == 0) {
+            t = block.timestamp;
+        }
+
+        return _total_vested_of(_recipient, t) - total_claimed[_recipient];
     }
 
     function lockedOf(address _recipient) public view returns (uint256) {
@@ -225,7 +228,7 @@ contract LendFlareTokenLockerFactory {
         uint256 _start_time,
         uint256 _end_time,
         address _owner,
-        string memory description
+        string calldata description
     ) external returns (address) {
         require(
             msg.sender == owner,

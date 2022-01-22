@@ -27,8 +27,8 @@ interface IMinter {
     function minted(address addr, address self) external view returns (uint256);
 }
 
-interface ILendFlareGagueModel {
-    function getGagueWeight(address addr) external view returns (uint256);
+interface ILendFlareGaugeModel {
+    function getGaugeWeightShare(address addr) external view returns (uint256);
 }
 
 contract LendFlareGauge {
@@ -36,8 +36,8 @@ contract LendFlareGauge {
     using SafeERC20 for IERC20;
 
     uint256 constant TOKENLESS_PRODUCTION = 40;
-    uint256 constant BOOST_WARMUP = 2 * 7 * 86400;
-    uint256 constant WEEK = 604800;
+    uint256 constant BOOST_WARMUP = 2 weeks;
+    uint256 constant WEEK = 1 weeks;
 
     address public virtualBalance;
     uint256 public working_supply;
@@ -55,8 +55,8 @@ contract LendFlareGauge {
 
     mapping(address => uint256) public integrate_inv_supply_of;
     mapping(address => uint256) public integrate_checkpoint_of;
-    mapping(address => uint256) public integrate_fraction;
-    mapping(address => uint256) public working_balances;
+    mapping(address => uint256) public totalAccrued;
+    mapping(address => uint256) public rewardLiquidityLimits;
 
     event UpdateLiquidityLimit(
         address user,
@@ -101,9 +101,9 @@ contract LendFlareGauge {
 
         lim = min(l, lim);
 
-        uint256 old_bal = working_balances[addr];
+        uint256 old_bal = rewardLiquidityLimits[addr];
 
-        working_balances[addr] = lim;
+        rewardLiquidityLimits[addr] = lim;
 
         uint256 _working_supply = working_supply + lim - old_bal;
         working_supply = _working_supply;
@@ -122,10 +122,13 @@ contract LendFlareGauge {
             future_epoch_time = ILendFlareToken(lendFlareToken)
                 .future_epoch_time_write();
             new_rate = ILendFlareToken(lendFlareToken).rate();
+
+            require(new_rate > 0, "!new_rate");
+
             inflation_rate = new_rate;
         }
 
-        uint256 _working_balance = working_balances[addr];
+        uint256 _working_balance = rewardLiquidityLimits[addr];
         uint256 _working_supply = working_supply;
 
         if (block.timestamp > _period_time) {
@@ -137,8 +140,8 @@ contract LendFlareGauge {
 
             for (uint256 i = 0; i < 500; i++) {
                 uint256 dt = week_time - prev_week_time;
-                uint256 w = ILendFlareGagueModel(lendFlareGaugeModel)
-                    .getGagueWeight(address(this));
+                uint256 w = ILendFlareGaugeModel(lendFlareGaugeModel)
+                    .getGaugeWeightShare(address(this));
 
                 if (_working_supply > 0) {
                     if (
@@ -170,7 +173,7 @@ contract LendFlareGauge {
         period_timestamp[period] = block.timestamp;
         integrate_inv_supply[period] = _integrate_inv_supply;
 
-        integrate_fraction[addr] +=
+        totalAccrued[addr] +=
             (_working_balance *
                 (_integrate_inv_supply - integrate_inv_supply_of[addr])) /
             10**18;
@@ -178,7 +181,7 @@ contract LendFlareGauge {
         integrate_checkpoint_of[addr] = block.timestamp;
     }
 
-    function user_checkpoint(address addr) public returns (bool) {
+    function updateReward(address addr) public returns (bool) {
         _checkpoint(addr);
         _update_liquidity_limit(
             addr,
@@ -193,11 +196,11 @@ contract LendFlareGauge {
         _checkpoint(addr);
 
         return
-            integrate_fraction[addr] -
+            totalAccrued[addr] -
             IMinter(lendFlareTokenMinter).minted(addr, address(this));
     }
 
-    function integrate_checkpoint() public view returns (uint256) {
+    function lastCheckpointTimestamp() public view returns (uint256) {
         return period_timestamp[period];
     }
 
@@ -206,32 +209,37 @@ contract LendFlareGauge {
     }
 }
 
-contract SupplyPoolGagueFactory {
+contract SupplyPoolGaugeFactory {
     address public owner;
-    address public gagueModel;
 
-    event CreateGague(address gague);
+    event CreateGauge(address gauge);
 
     constructor() public {
         owner = msg.sender;
     }
 
     function setOwner(address _owner) external {
-        require(msg.sender == owner, "SupplyPoolGagueFactory: !authorized setOwner");
+        require(
+            msg.sender == owner,
+            "SupplyPoolGaugeFactory: !authorized setOwner"
+        );
 
         owner = _owner;
     }
 
-    function createGague(
+    function createGauge(
         address _virtualBalance,
         address _lendflareToken,
         address _lendflareVotingEscrow,
         address _lendflareGaugeModel,
         address _lendflareTokenMinter
     ) public returns (address) {
-        require(msg.sender == owner, "SupplyPoolGagueFactory: !authorized createGague");
+        require(
+            msg.sender == owner,
+            "SupplyPoolGaugeFactory: !authorized createGauge"
+        );
 
-        LendFlareGauge gague = new LendFlareGauge(
+        LendFlareGauge gauge = new LendFlareGauge(
             _virtualBalance,
             _lendflareToken,
             _lendflareVotingEscrow,
@@ -239,8 +247,8 @@ contract SupplyPoolGagueFactory {
             _lendflareTokenMinter
         );
 
-        emit CreateGague(address(gague));
+        emit CreateGauge(address(gauge));
 
-        return address(gague);
+        return address(gauge);
     }
 }

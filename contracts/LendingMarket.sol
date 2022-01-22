@@ -16,87 +16,8 @@ pragma experimental ABIEncoderV2;
 import "@openzeppelin/contracts/proxy/Initializable.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-
-interface IConvexBooster {
-    function liquidate(
-        uint256 _convexPid,
-        int128 _curveCoinId,
-        address _user,
-        uint256 _amount
-    ) external returns (address, uint256);
-
-    function depositFor(
-        uint256 _convexPid,
-        uint256 _amount,
-        address _user
-    ) external returns (bool);
-
-    function withdrawFor(
-        uint256 _convexPid,
-        uint256 _amount,
-        address _user,
-        bool _isFrozenTokens
-    ) external returns (bool);
-
-    function poolInfo(uint256 _convexPid)
-        external
-        view
-        returns (
-            uint256 originConvexPid,
-            address curveSwapAddress,
-            address lpToken,
-            address originCrvRewards,
-            address originStash,
-            address virtualBalance,
-            address rewardCrvPool,
-            address rewardCvxPool,
-            bool shutdown
-        );
-}
-
-interface ISupplyBooster {
-    function liquidate(
-        bytes32 _lendingId,
-        uint256 _lendingAmount,
-        uint256 _lendingInterest
-    ) external payable returns (address);
-
-    function getLendingUnderlyToken(bytes32 _lendingId)
-        external
-        view
-        returns (address);
-
-    function borrow(
-        uint256 _pid,
-        bytes32 _lendingId,
-        address _user,
-        uint256 _lendingAmount,
-        uint256 _lendingInterest,
-        uint256 _borrowNumbers
-    ) external;
-
-    // ether
-    function repayBorrow(
-        bytes32 _lendingId,
-        address _user,
-        uint256 _lendingInterest
-    ) external payable;
-
-    // erc20
-    function repayBorrow(
-        bytes32 _lendingId,
-        address _user,
-        uint256 _lendingAmount,
-        uint256 _lendingInterest
-    ) external;
-
-    function getBorrowRatePerBlock(uint256 _pid)
-        external
-        view
-        returns (uint256);
-
-    function getUtilizationRate(uint256 _pid) external view returns (uint256);
-}
+import "./convex/IConvexBooster.sol";
+import "./supply/ISupplyBooster.sol";
 
 interface ICurveSwap {
     function calc_withdraw_one_coin(uint256 _tokenAmount, int128 _tokenId)
@@ -119,11 +40,11 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     address public supplyBooster;
     address public lendingSponsor;
 
-    uint256 public launchTime;
     uint256 public liquidateThresholdBlockNumbers;
     uint256 public version;
 
     address public owner;
+    address public governance;
 
     enum UserLendingState {
         LENDING,
@@ -185,11 +106,16 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
     PoolInfo[] public poolInfo;
 
+    address public constant ZERO_ADDRESS =
+        0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    uint256 public constant MIN_LIQUIDATE_BLOCK_NUMBERS = 50;
     uint256 public constant MIN_LENDING_THRESHOLD = 100;
     uint256 public constant MIN_LIQUIDATE_THRESHOLD = 50;
+    uint256 public constant MAX_LIQUIDATE_BLOCK_NUMBERS = 100;
     uint256 public constant MAX_LENDING_THRESHOLD = 300;
     uint256 public constant MAX_LIQUIDATE_THRESHOLD = 300;
     uint256 public constant SUPPLY_RATE_DENOMINATOR = 1e18;
+    uint256 public constant MAX_LENDFLARE_TOTAL_RATE = 0.5 * 1e18;
     uint256 public constant THRESHOLD_DENOMINATOR = 1000;
     uint256 public constant BLOCKS_PER_YEAR = 2102400; // Reference Compound WhitePaperInterestRateModel contract
     uint256 public constant BLOCKS_PER_DAY = 5760;
@@ -237,9 +163,19 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     );
 
     event SetOwner(address owner);
+    event SetGovernance(address governance);
+    event SetBorrowBlock(uint256 borrowBlock, bool state);
 
     modifier onlyOwner() {
         require(owner == msg.sender, "LendingMarket: caller is not the owner");
+        _;
+    }
+
+    modifier onlyGovernance() {
+        require(
+            governance == msg.sender,
+            "LendingMarket: caller is not the governance"
+        );
         _;
     }
 
@@ -249,14 +185,20 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         emit SetOwner(_owner);
     }
 
+    function setGovernance(address _governance) public onlyOwner {
+        governance = _governance;
+
+        emit SetGovernance(_governance);
+    }
+
     function initialize(
         address _owner,
         address _lendingSponsor,
         address _convexBooster,
         address _supplyBooster
     ) public initializer {
-        launchTime = block.timestamp;
         owner = _owner;
+        governance = _owner;
         lendingSponsor = _lendingSponsor;
         convexBooster = _convexBooster;
         supplyBooster = _supplyBooster;
@@ -279,7 +221,6 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 _borrowBlock,
         uint256 _supportPid
     ) public payable nonReentrant {
-        require(block.timestamp >= launchTime, "!launchTime");
         require(borrowBlocks[_borrowBlock], "!borrowBlocks");
         require(msg.value == 0.1 ether, "!lendingSponsor");
 
@@ -354,7 +295,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
 
         BorrowInfo storage borrowInfo = borrowInfos[
-            getEncodePacked(_pid, pool.supportPids[_supportPid], address(0))
+            generateId(address(0), _pid, pool.supportPids[_supportPid])
         ];
 
         borrowInfo.borrowAmount = borrowInfo.borrowAmount.add(
@@ -365,7 +306,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
 
         Statistic storage statistic = myStatistics[
-            getEncodePacked(_pid, pool.supportPids[_supportPid], msg.sender)
+            generateId(msg.sender, _pid, pool.supportPids[_supportPid])
         ];
 
         statistic.totalCollateral = statistic.totalCollateral.add(_token0);
@@ -426,7 +367,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
     function _repayBorrow(
         bytes32 _lendingId,
         uint256 _amount,
-        bool isFrozenTokens
+        bool _freezeTokens
     ) internal nonReentrant {
         LendingInfo storage lendingInfo = lendings[_lendingId];
 
@@ -435,7 +376,9 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         UserLending storage userLending = userLendings[lendingInfo.user][
             lendingInfo.userLendingIndex
         ];
-        PoolInfo memory pool = poolInfo[lendingInfo.pid];
+        address underlyToken = ISupplyBooster(supplyBooster)
+            .getLendingUnderlyToken(userLending.lendingId);
+        PoolInfo storage pool = poolInfo[lendingInfo.pid];
 
         require(
             lendingInfo.state == UserLendingState.LENDING,
@@ -448,48 +391,25 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             "Expired"
         );
 
-        require(_amount == userLending.lendingAmount, "!_amount");
+        if (underlyToken == ZERO_ADDRESS) {
+            require(
+                msg.value == _amount && _amount == userLending.lendingAmount,
+                "!_amount"
+            );
 
-        lendingInfo.state = UserLendingState.EXPIRED;
+            ISupplyBooster(supplyBooster).repayBorrow{
+                value: userLending.lendingAmount
+            }(
+                userLending.lendingId,
+                lendingInfo.user,
+                userLending.lendingInterest
+            );
+        } else {
+            require(
+                msg.value == 0 && _amount == userLending.lendingAmount,
+                "!_amount"
+            );
 
-        IConvexBooster(convexBooster).withdrawFor(
-            pool.convexPid,
-            userLending.token0,
-            lendingInfo.user,
-            isFrozenTokens
-        );
-
-        BorrowInfo storage borrowInfo = borrowInfos[
-            getEncodePacked(lendingInfo.pid, userLending.supportPid, address(0))
-        ];
-
-        borrowInfo.borrowAmount = borrowInfo.borrowAmount.sub(
-            userLending.token0Price
-        );
-        borrowInfo.supplyAmount = borrowInfo.supplyAmount.sub(
-            userLending.lendingAmount
-        );
-
-        Statistic storage statistic = myStatistics[
-            getEncodePacked(
-                lendingInfo.pid,
-                userLending.supportPid,
-                lendingInfo.user
-            )
-        ];
-
-        statistic.totalCollateral = statistic.totalCollateral.sub(
-            userLending.token0
-        );
-        statistic.totalBorrow = statistic.totalBorrow.sub(
-            userLending.lendingAmount
-        );
-        statistic.recentRepayAt = block.timestamp;
-
-        address underlyToken = ISupplyBooster(supplyBooster)
-            .getLendingUnderlyToken(userLending.lendingId);
-
-        if (underlyToken != 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
             IERC20(underlyToken).safeTransferFrom(
                 msg.sender,
                 supplyBooster,
@@ -502,20 +422,48 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 userLending.lendingAmount,
                 userLending.lendingInterest
             );
-        } else {
-            ISupplyBooster(supplyBooster).repayBorrow{
-                value: userLending.lendingAmount
-            }(
-                userLending.lendingId,
-                lendingInfo.user,
-                userLending.lendingInterest
-            );
         }
+
+        IConvexBooster(convexBooster).withdrawFor(
+            pool.convexPid,
+            userLending.token0,
+            lendingInfo.user,
+            _freezeTokens
+        );
+
+        BorrowInfo storage borrowInfo = borrowInfos[
+            generateId(address(0), lendingInfo.pid, userLending.supportPid)
+        ];
+
+        borrowInfo.borrowAmount = borrowInfo.borrowAmount.sub(
+            userLending.token0Price
+        );
+        borrowInfo.supplyAmount = borrowInfo.supplyAmount.sub(
+            userLending.lendingAmount
+        );
+
+        Statistic storage statistic = myStatistics[
+            generateId(
+                lendingInfo.user,
+                lendingInfo.pid,
+                userLending.supportPid
+            )
+        ];
+
+        statistic.totalCollateral = statistic.totalCollateral.sub(
+            userLending.token0
+        );
+        statistic.totalBorrow = statistic.totalBorrow.sub(
+            userLending.lendingAmount
+        );
+        statistic.recentRepayAt = block.timestamp;
 
         ILendingSponsor(lendingSponsor).payFee(
             userLending.lendingId,
             payable(lendingInfo.user)
         );
+
+        lendingInfo.state = UserLendingState.EXPIRED;
 
         emit RepayBorrow(
             userLending.lendingId,
@@ -532,17 +480,23 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         _repayBorrow(_lendingId, _amount, false);
     }
 
-    function repayBorrowAndFrozenTokens(bytes32 _lendingId) public payable {
+    function repayBorrowAndFreezeTokens(bytes32 _lendingId) public payable {
         _repayBorrow(_lendingId, msg.value, true);
     }
 
-    function repayBorrowERC20AndFrozenTokens(
+    function repayBorrowERC20AndFreezeTokens(
         bytes32 _lendingId,
         uint256 _amount
     ) public {
         _repayBorrow(_lendingId, _amount, true);
     }
 
+    /**
+    @notice Used to liquidate asset
+    @dev If repayment is overdue, it is used to liquidate asset. If valued LP is not enough, can use msg.value or _extraErc20Amount force liquidation
+    @param _lendingId Lending ID
+    @param _extraErc20Amount If liquidate erc-20 asset, fill in extra amount. If native asset, send msg.value
+     */
     function liquidate(bytes32 _lendingId, uint256 _extraErc20Amount)
         public
         payable
@@ -569,12 +523,12 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             "!borrowNumbers"
         );
 
-        PoolInfo memory pool = poolInfo[lendingInfo.pid];
+        PoolInfo storage pool = poolInfo[lendingInfo.pid];
 
         lendingInfo.state = UserLendingState.LIQUIDATED;
 
         BorrowInfo storage borrowInfo = borrowInfos[
-            getEncodePacked(lendingInfo.pid, userLending.supportPid, address(0))
+            generateId(address(0), lendingInfo.pid, userLending.supportPid)
         ];
 
         borrowInfo.borrowAmount = borrowInfo.borrowAmount.sub(
@@ -585,10 +539,10 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
 
         Statistic storage statistic = myStatistics[
-            getEncodePacked(
+            generateId(
+                lendingInfo.user,
                 lendingInfo.pid,
-                userLending.supportPid,
-                lendingInfo.user
+                userLending.supportPid
             )
         ];
 
@@ -608,12 +562,11 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 userLending.token0
             );
 
-        if (underlyToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+        if (underlyToken == ZERO_ADDRESS) {
             liquidateAmount = liquidateAmount.add(msg.value);
 
             ISupplyBooster(supplyBooster).liquidate{value: liquidateAmount}(
                 userLending.lendingId,
-                userLending.lendingAmount,
                 userLending.lendingInterest
             );
         } else {
@@ -630,7 +583,6 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
             ISupplyBooster(supplyBooster).liquidate(
                 userLending.lendingId,
-                userLending.lendingAmount,
                 userLending.lendingInterest
             );
         }
@@ -651,13 +603,23 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
     }
 
-    function setLiquidateThresholdBlockNumbers(uint256 _v) public onlyOwner {
-        require(_v >= 50 && _v <= 100, "!_v");
+    function setLiquidateThresholdBlockNumbers(uint256 _v)
+        public
+        onlyGovernance
+    {
+        require(
+            _v >= MIN_LIQUIDATE_BLOCK_NUMBERS &&
+                _v <= MAX_LIQUIDATE_BLOCK_NUMBERS,
+            "!_v"
+        );
 
         liquidateThresholdBlockNumbers = _v;
     }
 
-    function setBorrowBlock(uint256 _number, bool _state) public onlyOwner {
+    function setBorrowBlock(uint256 _number, bool _state)
+        public
+        onlyGovernance
+    {
         require(
             _number.sub(liquidateThresholdBlockNumbers) >
                 liquidateThresholdBlockNumbers,
@@ -665,18 +627,32 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
 
         borrowBlocks[_number] = _state;
+
+        emit SetBorrowBlock(_number, borrowBlocks[_number]);
     }
 
-    function setLendingThreshold(uint256 _pid, uint256 _v) public onlyOwner {
-        require(_v >= 100 && _v <= 300, "!_v");
+    function setLendingThreshold(uint256 _pid, uint256 _v)
+        public
+        onlyGovernance
+    {
+        require(
+            _v >= MIN_LENDING_THRESHOLD && _v <= MAX_LENDING_THRESHOLD,
+            "!_v"
+        );
 
         PoolInfo storage pool = poolInfo[_pid];
 
         pool.lendingThreshold = _v;
     }
 
-    function setLiquidateThreshold(uint256 _pid, uint256 _v) public onlyOwner {
-        require(_v >= 50 && _v <= 300, "!_v");
+    function setLiquidateThreshold(uint256 _pid, uint256 _v)
+        public
+        onlyGovernance
+    {
+        require(
+            _v >= MIN_LIQUIDATE_THRESHOLD && _v <= MAX_LIQUIDATE_THRESHOLD,
+            "!_v"
+        );
 
         PoolInfo storage pool = poolInfo[_pid];
 
@@ -692,11 +668,11 @@ contract LendingMarket is Initializable, ReentrancyGuard {
      */
     function addMarketPool(
         uint256 _convexBoosterPid,
-        uint256[] memory _supplyBoosterPids,
-        int128[] memory _curveCoinIds,
+        uint256[] calldata _supplyBoosterPids,
+        int128[] calldata _curveCoinIds,
         uint256 _lendingThreshold,
         uint256 _liquidateThreshold
-    ) public onlyOwner {
+    ) public onlyGovernance {
         require(
             _lendingThreshold >= MIN_LENDING_THRESHOLD &&
                 _lendingThreshold <= MAX_LENDING_THRESHOLD,
@@ -751,15 +727,13 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 size = _offset.add(_size) > pool.borrowIndex
             ? pool.borrowIndex.sub(_offset)
             : _size;
-        uint256 index;
 
         bytes32[] memory userLendingIds = new bytes32[](size);
 
         for (uint256 i = 0; i < size; i++) {
             bytes32 userLendingId = poolLending[_pid][_offset.add(i)];
 
-            userLendingIds[index] = userLendingId;
-            index++;
+            userLendingIds[i] = userLendingId;
         }
 
         return (userLendingIds, pool.borrowIndex);
@@ -841,18 +815,33 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             lendflareTotalRate = supplyRate.sub(SUPPLY_RATE_DENOMINATOR);
         }
 
-        uint256 lendingAmount = (token0Price *
-            SUPPLY_RATE_DENOMINATOR *
-            (THRESHOLD_DENOMINATOR - _lendingThreshold - _liquidateThreshold)) /
-            (SUPPLY_RATE_DENOMINATOR + lendflareTotalRate) /
-            THRESHOLD_DENOMINATOR;
+        /* 
+            In order to prevent borrowers dont repay and liquidate assets fully cover interest and principal, 
+            collateralised asset is valued using equation LendingAmount = token0Price * (1 - _lendingThreshold - _liquidateThreshold) / (1 + lendflareTotalRate)
+         */
 
-        // lendingInterest
+        uint256 lendingAmount = token0Price.mul(SUPPLY_RATE_DENOMINATOR);
+
+        lendingAmount = lendingAmount.mul(
+            THRESHOLD_DENOMINATOR.sub(_lendingThreshold).sub(
+                _liquidateThreshold
+            )
+        );
+
+        lendingAmount = lendingAmount
+            .div(SUPPLY_RATE_DENOMINATOR.add(lendflareTotalRate))
+            .div(THRESHOLD_DENOMINATOR);
+
         uint256 lendlareInterest = lendingAmount.mul(lendflareTotalRate).div(
             SUPPLY_RATE_DENOMINATOR
         );
         // uint256 borrowAmount = lendingAmount.sub(lendlareInterest);
         // uint256 repayBorrowAmount = lendingAmount;
+
+        require(
+            lendingAmount > lendlareInterest,
+            "LendingMarket: too much interest"
+        );
 
         return
             LendingParams({
@@ -894,20 +883,6 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         total = total.add(result);
     }
 
-    // function getSupplyRate(uint256 _supplyBlockRate, uint256 n)
-    //     public
-    //     pure
-    //     returns (uint256)
-    // {
-    //     _supplyBlockRate = _supplyBlockRate + (10**18);
-
-    //     for (uint256 i = 1; i <= n; i++) {
-    //         _supplyBlockRate = (_supplyBlockRate**2) / (10**18);
-    //     }
-
-    //     return _supplyBlockRate;
-    // }
-
     function getAmplificationFactor(uint256 _utilizationRate)
         public
         pure
@@ -927,17 +902,5 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         returns (uint256)
     {
         return _supplyRate.sub(1e18).mul(_amplificationFactor).div(1e18);
-    }
-
-    function getEncodePacked(
-        uint256 _pid,
-        uint256 _supportPid,
-        address _sender
-    ) public pure returns (bytes32) {
-        if (_sender == address(0)) {
-            return generateId(_sender, _pid, _supportPid);
-        }
-
-        return generateId(_sender, _pid, _supportPid);
     }
 }

@@ -31,8 +31,8 @@ interface ISupplyBooster {
         );
 }
 
-interface ILendFlareGague {
-    function user_checkpoint(address addr) external returns (bool);
+interface ILendFlareGauge {
+    function updateReward(address addr) external returns (bool);
 }
 
 interface ILendFlareMinter {
@@ -43,8 +43,8 @@ interface ILendflareToken {
     function minter() external view returns (address);
 }
 
-interface ISupplyPoolGagueFactory {
-    function createGague(
+interface ISupplyPoolGaugeFactory {
+    function createGauge(
         address _virtualBalance,
         address _lendflareToken,
         address _lendflareVotingEscrow,
@@ -54,9 +54,9 @@ interface ISupplyPoolGagueFactory {
 }
 
 interface ILendflareGaugeModel {
-    function addGague(address _gauge, uint256 _weight) external;
+    function addGauge(address _gauge, uint256 _weight) external;
 
-    function toggleGague(address _gauge, bool _state) external;
+    function toggleGauge(address _gauge, bool _state) external;
 }
 
 interface ISupplyRewardFactory {
@@ -68,14 +68,14 @@ interface ISupplyRewardFactory {
 }
 
 contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
+    using Address for address payable;
     using SafeERC20 for IERC20;
 
     address public owner;
 
     address public supplyBooster;
     address public supplyRewardFactory;
-    address public supplyPoolGagueFactory;
-    address public rewardCompToken;
+    address public supplyPoolGaugeFactory;
     address public lendflareVotingEscrow;
     address public lendflareToken;
     address public lendflareGaugeModel;
@@ -86,7 +86,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
     constructor(
         address _supplyBooster,
         address _supplyRewardFactory,
-        address _supplyPoolGagueFactory,
+        address _supplyPoolGaugeFactory,
         address _lendflareGaugeModel,
         address _lendflareVotingEscrow,
         address _lendflareToken
@@ -95,7 +95,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
 
         supplyBooster = _supplyBooster;
         supplyRewardFactory = _supplyRewardFactory;
-        supplyPoolGagueFactory = _supplyPoolGagueFactory;
+        supplyPoolGaugeFactory = _supplyPoolGaugeFactory;
         lendflareVotingEscrow = _lendflareVotingEscrow;
         lendflareToken = _lendflareToken;
         lendflareGaugeModel = _lendflareGaugeModel;
@@ -119,8 +119,8 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         address lendflareMinter = ILendflareToken(lendflareToken).minter();
         require(lendflareMinter != address(0), "!lendflareMinter");
 
-        address poolGague = ISupplyPoolGagueFactory(supplyPoolGagueFactory)
-            .createGague(
+        address poolGauge = ISupplyPoolGaugeFactory(supplyPoolGaugeFactory)
+            .createGauge(
                 _virtualBalance,
                 lendflareToken,
                 lendflareVotingEscrow,
@@ -129,10 +129,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
             );
 
         // default weight = 100 * 1e18
-        ILendflareGaugeModel(lendflareGaugeModel).addGague(
-            poolGague,
-            100000000000000000000
-        );
+        ILendflareGaugeModel(lendflareGaugeModel).addGauge(poolGauge, 100e18);
 
         address rewardVeLendFlarePool;
 
@@ -149,7 +146,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         }
 
         veLendFlarePool[_pid] = rewardVeLendFlarePool;
-        gaugePool[_pid] = poolGague;
+        gaugePool[_pid] = poolGauge;
     }
 
     function updateOldPool(uint256 _pid) public {
@@ -186,13 +183,13 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         createPool(_pid, _lpToken, _virtualBalance, _isErc20);
     }
 
-    function shutdownPool(uint256 _pid, bool _state) public {
+    function toggleShutdownPool(uint256 _pid, bool _state) public {
         require(
             msg.sender == supplyBooster,
-            "SupplyPoolExtraRewardFactory: !authorized shutdownPool"
+            "SupplyPoolExtraRewardFactory: !authorized toggleShutdownPool"
         );
 
-        ILendflareGaugeModel(lendflareGaugeModel).toggleGague(
+        ILendflareGaugeModel(lendflareGaugeModel).toggleGauge(
             gaugePool[_pid],
             _state
         );
@@ -207,10 +204,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         address lendflareMinter = ILendflareToken(lendflareToken).minter();
 
         if (lendflareMinter != address(0)) {
-            ILendFlareMinter(ILendflareToken(lendflareToken).minter()).mint_for(
-                    gaugePool[_pid],
-                    _for
-                );
+            ILendFlareMinter(lendflareMinter).mint_for(gaugePool[_pid], _for);
         }
     }
 
@@ -222,7 +216,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
             "SupplyPoolExtraRewardFactory: !authorized afterStake"
         );
 
-        ILendFlareGague(gaugePool[_pid]).user_checkpoint(_for);
+        ILendFlareGauge(gaugePool[_pid]).updateReward(_for);
     }
 
     function beforeWithdraw(uint256 _pid, address _for) public nonReentrant {}
@@ -233,7 +227,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
             "SupplyPoolExtraRewardFactory: !authorized afterWithdraw"
         );
 
-        ILendFlareGague(gaugePool[_pid]).user_checkpoint(_for);
+        ILendFlareGauge(gaugePool[_pid]).updateReward(_for);
     }
 
     function getVeLFTUserRewards(uint256[] memory _pids) public nonReentrant {
@@ -255,7 +249,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         );
 
         if (_underlyToken == address(0)) {
-            payable(veLendFlarePool[_pid]).transfer(_amount);
+            payable(veLendFlarePool[_pid]).sendValue(_amount);
         } else {
             IERC20(_underlyToken).safeTransfer(veLendFlarePool[_pid], _amount);
         }

@@ -12,7 +12,6 @@ LendFlare.finance
 
 pragma solidity =0.6.12;
 
-import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -58,6 +57,7 @@ interface IUniswapV2Factory {
 }
 
 contract LiquidityTransformer is ReentrancyGuard {
+    using Address for address payable;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
     using Address for address;
@@ -70,14 +70,16 @@ contract LiquidityTransformer is ReentrancyGuard {
 
     address payable teamAddress;
 
+    uint256 public constant FEE_DENOMINATOR = 10;
     uint256 public constant liquifyTokens = 909090909 * 1e18;
-    uint256 public investmentDays;
+    uint256 public investmentTime;
     uint256 public minInvest;
     uint256 public launchTime;
 
     struct Globals {
         uint256 totalUsers;
-        uint256 transferedUsers;
+        uint256 totalBuys;
+        uint256 transferredUsers;
         uint256 totalWeiContributed;
         bool liquidity;
         uint256 endTimeAt;
@@ -96,7 +98,7 @@ contract LiquidityTransformer is ReentrancyGuard {
     );
 
     modifier afterUniswapTransfer() {
-        require(globals.liquidity == true, "forward liquidity first");
+        require(globals.liquidity == true, "Forward liquidity first");
         _;
     }
 
@@ -111,7 +113,7 @@ contract LiquidityTransformer is ReentrancyGuard {
         teamAddress = _teamAddress;
 
         minInvest = 0.1 ether;
-        investmentDays = 7 days;
+        investmentTime = 7 days;
 
         
     }
@@ -120,14 +122,17 @@ contract LiquidityTransformer is ReentrancyGuard {
         require(address(uniswapPair) == address(0), "!uniswapPair");
 
         uniswapPair = address(
-            IUniswapV2Factory(factory()).createPair(WETH(), address(this))
+            IUniswapV2Factory(factory()).createPair(
+                WETH(),
+                address(lendflareToken)
+            )
         );
     }
 
     receive() external payable {
         require(
             msg.sender == address(uniswapRouter) || msg.sender == teamAddress,
-            "direct deposits disabled"
+            "Direct deposits disabled"
         );
     }
 
@@ -148,7 +153,7 @@ contract LiquidityTransformer is ReentrancyGuard {
 
         uint256[] memory amounts = uniswapRouter.swapExactTokensForETH(
             _tokenAmount,
-            0,
+            minInvest,
             _path,
             address(this),
             block.timestamp
@@ -160,32 +165,36 @@ contract LiquidityTransformer is ReentrancyGuard {
     function _reserve(address _senderAddress, uint256 _senderValue) internal {
         require(block.timestamp >= launchTime, "Not started");
         require(
-            block.timestamp <= launchTime.add(investmentDays),
+            block.timestamp <= launchTime.add(investmentTime),
             "IDO has ended"
         );
-        require(_senderValue >= minInvest, "Investment below minimum");
         require(globals.liquidity == false, "!globals.liquidity");
+        require(_senderValue >= minInvest, "Investment below minimum");
+
+        if (investorBalances[_senderAddress] == 0) {
+            globals.totalUsers++;
+        }
 
         investorBalances[_senderAddress] += _senderValue;
 
         globals.totalWeiContributed += _senderValue;
-        globals.totalUsers++;
+        globals.totalBuys++;
     }
 
     function forwardLiquidity() external nonReentrant {
         require(globals.liquidity == false, "!globals.liquidity");
         require(
-            block.timestamp > launchTime.add(investmentDays),
+            block.timestamp > launchTime.add(investmentTime),
             "Not over yet"
         );
 
-        uint256 _etherFee = globals.totalWeiContributed.mul(100).div(1000);
+        uint256 _etherFee = globals.totalWeiContributed.div(FEE_DENOMINATOR);
         uint256 _balance = globals.totalWeiContributed.sub(_etherFee);
 
-        teamAddress.transfer(_etherFee);
+        teamAddress.sendValue(_etherFee);
 
         uint256 half = liquifyTokens.div(2);
-        uint256 _lendflareTokenFee = half.mul(100).div(1000);
+        uint256 _lendflareTokenFee = half.div(FEE_DENOMINATOR);
 
         IERC20(lendflareToken).safeTransfer(teamAddress, _lendflareTokenFee);
 
@@ -230,9 +239,9 @@ contract LiquidityTransformer is ReentrancyGuard {
 
         IERC20(lendflareToken).safeTransfer(msg.sender, myTokens);
 
-        globals.transferedUsers++;
+        globals.transferredUsers++;
 
-        if (globals.transferedUsers == globals.totalUsers) {
+        if (globals.transferredUsers == globals.totalUsers) {
             uint256 surplusBalance = IERC20(lendflareToken).balanceOf(
                 address(this)
             );
