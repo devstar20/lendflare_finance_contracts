@@ -72,7 +72,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
 
     uint256 public interestPercent;
 
-    mapping(uint256 => uint256) public freezeTokens; /* pool id => amount */
+    mapping(uint256 => uint256) public frozenTokens; /* pool id => amount */
     mapping(bytes32 => LendingInfo) public lendingInfos;
     mapping(uint256 => uint256) public interestTotal;
 
@@ -567,7 +567,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
             _lendingInterest
         );
 
-        freezeTokens[_pid] = freezeTokens[_pid].add(_lendingAmount);
+        frozenTokens[_pid] = frozenTokens[_pid].add(_lendingAmount);
         interestTotal[_pid] = interestTotal[_pid].add(_lendingInterest);
 
         LendingInfo memory lendingInfo;
@@ -628,7 +628,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
             "SupplyBooster: !_lendingAmount"
         );
 
-        freezeTokens[lendingInfo.pid] = freezeTokens[lendingInfo.pid].sub(
+        frozenTokens[lendingInfo.pid] = frozenTokens[lendingInfo.pid].sub(
             lendingInfo.lendingAmount
         );
         interestTotal[lendingInfo.pid] = interestTotal[lendingInfo.pid].sub(
@@ -702,7 +702,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
             "SupplyBooster: !LOCK"
         );
 
-        freezeTokens[lendingInfo.pid] = freezeTokens[lendingInfo.pid].sub(
+        frozenTokens[lendingInfo.pid] = frozenTokens[lendingInfo.pid].sub(
             lendingInfo.lendingAmount
         );
         interestTotal[lendingInfo.pid] = interestTotal[lendingInfo.pid].sub(
@@ -754,13 +754,13 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
         uint256 currentBal = ISupplyTreasuryFund(pool.supplyTreasuryFund)
             .getBalance();
 
-        if (currentBal.add(freezeTokens[_pid]) == 0) {
+        if (currentBal.add(frozenTokens[_pid]) == 0) {
             return 0;
         }
 
         return
-            freezeTokens[_pid].mul(1e18).div(
-                currentBal.add(freezeTokens[_pid])
+            frozenTokens[_pid].mul(1e18).div(
+                currentBal.add(frozenTokens[_pid])
             );
     }
 
@@ -783,7 +783,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
         override
         returns (address)
     {
-        LendingInfo memory lendingInfo = lendingInfos[_lendingId];
+        LendingInfo storage lendingInfo = lendingInfos[_lendingId];
 
         return (lendingInfo.underlyToken);
     }

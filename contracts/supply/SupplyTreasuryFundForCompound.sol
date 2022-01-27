@@ -201,7 +201,12 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
     {
         uint256 cTokens = IERC20(lpToken).balanceOf(address(this));
 
-        ICompound(lpToken).redeem(cTokens);
+        uint256 redeemState = ICompound(lpToken).redeem(cTokens);
+
+        require(
+            redeemState == 0,
+            "SupplyTreasuryFundForCompound: !redeemState"
+        );
 
         uint256 bal;
 
@@ -241,7 +246,13 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         }
     }
 
-    function depositFor(address _for) public payable onlyInitialized onlyOwner nonReentrant {
+    function depositFor(address _for)
+        public
+        payable
+        onlyInitialized
+        onlyOwner
+        nonReentrant
+    {
         _depositFor(_for, msg.value);
     }
 
@@ -272,7 +283,10 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
 
         uint256 redeemState = ICompound(lpToken).redeemUnderlying(_amount);
 
-        require(redeemState == 0,"SupplyTreasuryFundForCompound: !redeemState");
+        require(
+            redeemState == 0,
+            "SupplyTreasuryFundForCompound: !redeemState"
+        );
 
         uint256 bal;
 
@@ -299,9 +313,14 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         totalUnderlyToken = totalUnderlyToken.sub(_lendingAmount);
         frozenUnderlyToken = frozenUnderlyToken.add(_lendingAmount);
 
-        uint256 redeemState = ICompound(lpToken).redeemUnderlying(_lendingAmount);
+        uint256 redeemState = ICompound(lpToken).redeemUnderlying(
+            _lendingAmount
+        );
 
-        require(redeemState == 0,"SupplyTreasuryFundForCompound: !redeemState");
+        require(
+            redeemState == 0,
+            "SupplyTreasuryFundForCompound: !redeemState"
+        );
 
         if (isErc20) {
             IERC20(underlyToken).safeTransfer(
@@ -322,14 +341,25 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         return _lendingInterest;
     }
 
-    function repayBorrow() public payable onlyInitialized nonReentrant onlyOwner {
+    function repayBorrow()
+        public
+        payable
+        onlyInitialized
+        nonReentrant
+        onlyOwner
+    {
         _mintEther(msg.value);
 
         totalUnderlyToken = totalUnderlyToken.add(msg.value);
         frozenUnderlyToken = frozenUnderlyToken.sub(msg.value);
     }
 
-    function repayBorrow(uint256 _lendingAmount) public onlyInitialized nonReentrant onlyOwner {
+    function repayBorrow(uint256 _lendingAmount)
+        public
+        onlyInitialized
+        nonReentrant
+        onlyOwner
+    {
         IERC20(underlyToken).safeApprove(lpToken, 0);
         IERC20(underlyToken).safeApprove(lpToken, _lendingAmount);
 
@@ -346,7 +376,13 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         return exchangeRateStored.mul(cTokens).div(1e18);
     }
 
-    function claim() public onlyInitialized onlyOwner nonReentrant returns (uint256) {
+    function claim()
+        public
+        onlyInitialized
+        onlyOwner
+        nonReentrant
+        returns (uint256)
+    {
         ICompoundComptroller(compoundComptroller).claimComp(address(this));
 
         uint256 balanceOfComp = IERC20(compAddress).balanceOf(address(this));
@@ -363,7 +399,12 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         // If Uses withdraws all the money, the remaining ctoken is profit.
         if (totalUnderlyToken == 0 && frozenUnderlyToken == 0) {
             if (cTokens > 0) {
-                ICompound(lpToken).redeem(cTokens);
+                uint256 redeemState = ICompound(lpToken).redeem(cTokens);
+
+                require(
+                    redeemState == 0,
+                    "SupplyTreasuryFundForCompound: !redeemState"
+                );
 
                 if (isErc20) {
                     bal = IERC20(underlyToken).balanceOf(address(this));
@@ -392,7 +433,12 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
                 .mul(1e18)
                 .div(exchangeRateStored);
 
-            ICompound(lpToken).redeem(interestCToken);
+            uint256 redeemState = ICompound(lpToken).redeem(interestCToken);
+
+            require(
+                redeemState == 0,
+                "SupplyTreasuryFundForCompound: !redeemState"
+            );
 
             if (isErc20) {
                 bal = IERC20(underlyToken).balanceOf(address(this));

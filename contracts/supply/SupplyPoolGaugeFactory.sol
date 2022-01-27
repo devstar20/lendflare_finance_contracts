@@ -16,6 +16,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "../common/IVirtualBalanceWrapper.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface ILendFlareToken {
     function future_epoch_time_write() external returns (uint256);
@@ -31,7 +32,7 @@ interface ILendFlareGaugeModel {
     function getGaugeWeightShare(address addr) external view returns (uint256);
 }
 
-contract LendFlareGauge {
+contract LendFlareGauge is ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -181,7 +182,7 @@ contract LendFlareGauge {
         integrate_checkpoint_of[addr] = block.timestamp;
     }
 
-    function updateReward(address addr) public returns (bool) {
+    function updateReward(address addr) public nonReentrant returns (bool) {
         _checkpoint(addr);
         _update_liquidity_limit(
             addr,
@@ -192,7 +193,7 @@ contract LendFlareGauge {
         return true;
     }
 
-    function claimable_tokens(address addr) public returns (uint256) {
+    function claimable_tokens(address addr) public nonReentrant returns (uint256) {
         _checkpoint(addr);
 
         return

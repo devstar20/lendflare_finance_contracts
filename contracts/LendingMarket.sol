@@ -816,7 +816,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         }
 
         /* 
-            In order to prevent borrowers dont repay and liquidate assets fully cover interest and principal, 
+            In order to prevent borrowers from stopping repay loans and liquidated assets fully cover interest and principal, 
             collateralised asset is valued using equation LendingAmount = token0Price * (1 - _lendingThreshold - _liquidateThreshold) / (1 + lendflareTotalRate)
          */
 
@@ -837,6 +837,10 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         );
         // uint256 borrowAmount = lendingAmount.sub(lendlareInterest);
         // uint256 repayBorrowAmount = lendingAmount;
+        
+        /* 
+            If repaid interest bigger than pricipal, the loans will be rejected
+         */
 
         require(
             lendingAmount > lendlareInterest,

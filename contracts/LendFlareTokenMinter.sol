@@ -13,6 +13,7 @@ LendFlare.finance
 pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface ILiquidityGauge {
     function updateReward(address _for) external;
@@ -24,20 +25,26 @@ interface ILendFlareToken {
     function mint(address _for, uint256 amount) external;
 }
 
-contract LendFlareTokenMinter {
+contract LendFlareTokenMinter is ReentrancyGuard {
     using SafeMath for uint256;
 
     address public token;
+    address public supplyPoolExtraRewardFactory;
     uint256 public launchTime;
 
     mapping(address => mapping(address => uint256)) public minted; // user -> gauge -> value
 
     event Minted(address user, address gauge, uint256 amount);
 
-    constructor(address _token, uint256 _launchTime) public {
+    constructor(
+        address _token,
+        address _supplyPoolExtraRewardFactory,
+        uint256 _launchTime
+    ) public {
         require(_launchTime > block.timestamp, "!_launchTime");
         launchTime = _launchTime;
         token = _token;
+        supplyPoolExtraRewardFactory = _supplyPoolExtraRewardFactory;
     }
 
     function _mint_for(address gauge_addr, address _for) internal {
@@ -47,7 +54,7 @@ contract LendFlareTokenMinter {
             uint256 total_mint = ILiquidityGauge(gauge_addr).totalAccrued(_for);
             uint256 to_mint = total_mint - minted[_for][gauge_addr];
 
-            if (to_mint != 0) {
+            if (to_mint > 0) {
                 ILendFlareToken(token).mint(_for, to_mint);
                 minted[_for][gauge_addr] = total_mint;
 
@@ -56,17 +63,22 @@ contract LendFlareTokenMinter {
         }
     }
 
-    function mint(address gauge_addr) public {
+    function mint(address gauge_addr) public nonReentrant {
         _mint_for(gauge_addr, msg.sender);
     }
 
-    function mint_many(address[8] memory gauge_addrs) public {
+    function mint_many(address[] calldata gauge_addrs) external nonReentrant{
         for (uint256 i = 0; i < gauge_addrs.length; i++) {
             _mint_for(gauge_addrs[i], msg.sender);
         }
     }
 
-    function mint_for(address gauge_addr, address _for) public {
+    function mint_for(address gauge_addr, address _for) public nonReentrant {
+        require(
+            msg.sender == supplyPoolExtraRewardFactory,
+            "LendFlareTokenMinter: !authorized mint_for"
+        );
+
         _mint_for(gauge_addr, _for);
     }
 }

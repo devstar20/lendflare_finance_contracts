@@ -13,8 +13,9 @@ LendFlare.finance
 pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract LendFlareTokenLocker {
+contract LendFlareTokenLocker is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     address public owner;
@@ -119,7 +120,7 @@ contract LendFlareTokenLocker {
         emit ToggleDisable(_recipient, is_enabled);
     }
 
-    function claim() public {
+    function claim() public nonReentrant {
         address recipient = msg.sender;
         uint256 t = disabled_at[recipient];
 

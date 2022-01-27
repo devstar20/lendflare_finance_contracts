@@ -145,7 +145,7 @@ contract LiquidityTransformer is ReentrancyGuard {
     {
         IERC20 token = IERC20(_tokenAddress);
 
-        token.transferFrom(msg.sender, address(this), _tokenAmount);
+        token.safeTransferFrom(msg.sender, address(this), _tokenAmount);
 
         token.approve(address(uniswapRouter), _tokenAmount);
 
