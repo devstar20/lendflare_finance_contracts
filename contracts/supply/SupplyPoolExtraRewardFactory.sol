@@ -16,20 +16,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "../common/IVirtualBalanceWrapper.sol";
 import "../common/IBaseReward.sol";
-
-interface ISupplyBooster {
-    function poolInfo(uint256 _pid)
-        external
-        view
-        returns (
-            address underlyToken,
-            address rewardInterestPool,
-            address supplyTreasuryFund,
-            address virtualBalance,
-            bool isErc20,
-            bool shutdown
-        );
-}
+import "./ISupplyBooster.sol";
 
 interface ILendFlareGauge {
     function updateReward(address addr) external returns (bool);

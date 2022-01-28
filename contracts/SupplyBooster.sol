@@ -68,7 +68,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
     uint256 public constant FEE_PERCENT = 10;
     uint256 public constant PERCENT_DENOMINATOR = 100;
 
-    PoolInfo[] public poolInfo;
+    PoolInfo[] public override poolInfo;
 
     uint256 public interestPercent;
 

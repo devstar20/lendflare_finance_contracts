@@ -175,9 +175,13 @@ contract LiquidityTransformer is ReentrancyGuard {
             globals.totalUsers++;
         }
 
-        investorBalances[_senderAddress] += _senderValue;
+        investorBalances[_senderAddress] = investorBalances[_senderAddress].add(
+            _senderValue
+        );
 
-        globals.totalWeiContributed += _senderValue;
+        globals.totalWeiContributed = globals.totalWeiContributed.add(
+            _senderValue
+        );
         globals.totalBuys++;
     }
 

@@ -193,7 +193,11 @@ contract LendFlareGauge is ReentrancyGuard {
         return true;
     }
 
-    function claimable_tokens(address addr) public nonReentrant returns (uint256) {
+    function claimable_tokens(address addr)
+        public
+        nonReentrant
+        returns (uint256)
+    {
         _checkpoint(addr);
 
         return

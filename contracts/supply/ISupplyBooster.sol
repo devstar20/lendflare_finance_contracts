@@ -13,6 +13,18 @@ LendFlare.finance
 pragma solidity =0.6.12;
 
 interface ISupplyBooster {
+    function poolInfo(uint256 _pid)
+        external
+        view
+        returns (
+            address underlyToken,
+            address rewardInterestPool,
+            address supplyTreasuryFund,
+            address virtualBalance,
+            bool isErc20,
+            bool shutdown
+        );
+        
     function liquidate(
         bytes32 _lendingId,
         uint256 _lendingInterest

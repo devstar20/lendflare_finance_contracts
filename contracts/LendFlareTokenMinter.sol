@@ -52,7 +52,7 @@ contract LendFlareTokenMinter is ReentrancyGuard {
             ILiquidityGauge(gauge_addr).updateReward(_for);
 
             uint256 total_mint = ILiquidityGauge(gauge_addr).totalAccrued(_for);
-            uint256 to_mint = total_mint - minted[_for][gauge_addr];
+            uint256 to_mint = total_mint.sub(minted[_for][gauge_addr]);
 
             if (to_mint > 0) {
                 ILendFlareToken(token).mint(_for, to_mint);
@@ -63,15 +63,15 @@ contract LendFlareTokenMinter is ReentrancyGuard {
         }
     }
 
-    function mint(address gauge_addr) public nonReentrant {
+    /* function mint(address gauge_addr) public nonReentrant {
         _mint_for(gauge_addr, msg.sender);
     }
 
-    function mint_many(address[] calldata gauge_addrs) external nonReentrant{
+    function mint_many(address[] calldata gauge_addrs) external nonReentrant {
         for (uint256 i = 0; i < gauge_addrs.length; i++) {
             _mint_for(gauge_addrs[i], msg.sender);
         }
-    }
+    } */
 
     function mint_for(address gauge_addr, address _for) public nonReentrant {
         require(

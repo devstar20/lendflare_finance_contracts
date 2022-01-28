@@ -205,9 +205,9 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
         
 
-        borrowBlocks[BLOCKS_PER_DAY * 90] = true;
-        borrowBlocks[BLOCKS_PER_DAY * 180] = true;
-        borrowBlocks[BLOCKS_PER_YEAR] = true;
+        setBorrowBlock(BLOCKS_PER_DAY * 90, true);
+        setBorrowBlock(BLOCKS_PER_DAY * 180, true);
+        setBorrowBlock(BLOCKS_PER_YEAR, true);
 
         liquidateThresholdBlockNumbers = 50;
         version = 1;
@@ -817,7 +817,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
         /* 
             In order to prevent borrowers from stopping repay loans and liquidated assets fully cover interest and principal, 
-            collateralised asset is valued using equation LendingAmount = token0Price * (1 - _lendingThreshold - _liquidateThreshold) / (1 + lendflareTotalRate)
+            collateralised asset is valued using equation LendingAmount = token0Price * (1 - _lendingThreshold - _liquidateThreshold)
          */
 
         uint256 lendingAmount = token0Price.mul(SUPPLY_RATE_DENOMINATOR);
@@ -828,16 +828,16 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             )
         );
 
-        lendingAmount = lendingAmount
-            .div(SUPPLY_RATE_DENOMINATOR.add(lendflareTotalRate))
-            .div(THRESHOLD_DENOMINATOR);
+        lendingAmount = lendingAmount.div(SUPPLY_RATE_DENOMINATOR).div(
+            THRESHOLD_DENOMINATOR
+        );
 
         uint256 lendlareInterest = lendingAmount.mul(lendflareTotalRate).div(
             SUPPLY_RATE_DENOMINATOR
         );
         // uint256 borrowAmount = lendingAmount.sub(lendlareInterest);
         // uint256 repayBorrowAmount = lendingAmount;
-        
+
         /* 
             If repaid interest bigger than pricipal, the loans will be rejected
          */
