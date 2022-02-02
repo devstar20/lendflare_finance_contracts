@@ -88,12 +88,16 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
         _;
     }
 
-    function setOwner(address _owner) public override onlyOwner {
+    function setOwner(address _owner) public onlyOwner {
         owner = _owner;
 
         emit SetOwner(_owner);
     }
 
+    /* 
+    The default governance user is GenerateLendingPools contract.
+    It will be set to DAO in the future 
+    */
     function setGovernance(address _governance) public onlyOwner {
         governance = _governance;
 

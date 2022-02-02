@@ -14,6 +14,7 @@ pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/proxy/Initializable.sol";
 
 interface IRewardPool {
     function stake(address _for) external;
@@ -21,7 +22,7 @@ interface IRewardPool {
     function withdraw(address _for) external;
 }
 
-contract LendFlareVotingEscrow is ReentrancyGuard {
+contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
@@ -79,11 +80,11 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
     event SetMinter(address minter);
     event SetOwner(address owner);
 
-    constructor(
+    function initialize(
         string memory version_,
         address token_addr_,
         address owner_
-    ) public {
+    ) public initializer {
         _version = version_;
         token = token_addr_;
         owner = owner_;
@@ -139,14 +140,13 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
 
     function _checkpoint(
         address addr,
-        LockedBalance storage old_locked,
-        LockedBalance storage new_locked
+        LockedBalance memory old_locked,
+        LockedBalance memory new_locked
     ) internal {
         Point memory u_old;
         Point memory u_new;
-
-        uint256 old_dslope;
-        uint256 new_dslope;
+        uint256 old_dslope = 0;
+        uint256 new_dslope = 0;
 
         if (addr != address(0)) {
             if (old_locked.end > block.timestamp && old_locked.amount > 0) {
@@ -162,11 +162,8 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
             old_dslope = slope_changes[old_locked.end];
 
             if (new_locked.end != 0) {
-                if (new_locked.end == old_locked.end) {
-                    new_dslope = old_dslope;
-                } else {
-                    new_dslope = slope_changes[new_locked.end];
-                }
+                if (new_locked.end == old_locked.end) new_dslope = old_dslope;
+                else new_dslope = slope_changes[new_locked.end];
             }
         }
 
@@ -183,7 +180,7 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
 
         uint256 last_checkpoint = last_point.ts;
         Point memory initial_last_point = last_point;
-        uint256 block_slope = 0;
+        uint256 block_slope = 0; // dblock/dt
 
         if (block.timestamp > last_point.ts) {
             block_slope =
@@ -194,25 +191,18 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
         uint256 t_i = (last_checkpoint / WEEK) * WEEK;
 
         for (uint256 i = 0; i < 255; i++) {
-            t_i += WEEK;
             uint256 d_slope = 0;
+            t_i += WEEK;
 
-            if (t_i > block.timestamp) {
-                t_i = block.timestamp;
-            } else {
-                d_slope = slope_changes[t_i];
-            }
+            if (t_i > block.timestamp) t_i = block.timestamp;
+            else d_slope = slope_changes[t_i];
 
             last_point.bias -= last_point.slope * (t_i - last_checkpoint);
             last_point.slope += d_slope;
 
-            if (last_point.bias < 0) {
-                last_point.bias = 0;
-            }
+            if (last_point.bias < 0) last_point.bias = 0;
 
-            if (last_point.slope < 0) {
-                last_point.slope = 0;
-            }
+            if (last_point.slope < 0) last_point.slope = 0;
 
             last_checkpoint = t_i;
             last_point.ts = t_i;
@@ -220,7 +210,6 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
                 initial_last_point.blk +
                 (block_slope * (t_i - initial_last_point.ts)) /
                 MULTIPLIER;
-
             epoch += 1;
 
             if (t_i == block.timestamp) {
@@ -235,38 +224,37 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
             last_point.slope += (u_new.slope - u_old.slope);
             last_point.bias += (u_new.bias - u_old.bias);
 
-            if (last_point.slope < 0) {
-                last_point.slope = 0;
-            }
-
-            if (last_point.bias < 0) {
-                last_point.bias = 0;
-            }
+            if (last_point.slope < 0) last_point.slope = 0;
+            if (last_point.bias < 0) last_point.bias = 0;
         }
 
+        // Record the changed point into history
         point_history[epoch] = last_point;
 
         if (addr != address(0)) {
+            // Schedule the slope changes (slope is going down)
+            // We subtract new_user_slope from [new_locked.end]
+            // and add old_user_slope to [old_locked.end]
             if (old_locked.end > block.timestamp) {
+                // old_dslope was <something> - u_old.slope, so we cancel that
                 old_dslope += u_old.slope;
 
-                if (new_locked.end == old_locked.end) {
-                    old_dslope -= u_new.slope;
-                }
+                if (new_locked.end == old_locked.end) old_dslope -= u_new.slope; // It was a new deposit, not extension
 
                 slope_changes[old_locked.end] = old_dslope;
             }
 
             if (new_locked.end > block.timestamp) {
                 if (new_locked.end > old_locked.end) {
-                    new_dslope -= u_new.slope;
+                    new_dslope -= u_new.slope; // old slope disappeared at this point
                     slope_changes[new_locked.end] = new_dslope;
                 }
             }
 
+            // Now handle user history
             uint256 user_epoch = user_point_epoch[addr] + 1;
-            user_point_epoch[addr] = user_epoch;
 
+            user_point_epoch[addr] = user_epoch;
             u_new.ts = block.timestamp;
             u_new.blk = block.number;
             user_point_history[addr][user_epoch] = u_new;
@@ -277,13 +265,13 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
         address _addr,
         uint256 _value,
         uint256 unlock_time,
-        LockedBalance storage _locked,
+        LockedBalance memory _locked,
         DepositTypes depositTypes
     ) internal {
         uint256 supply_before = _totalSupply;
 
         _totalSupply = supply_before + _value;
-        LockedBalance storage old_locked = _locked;
+        LockedBalance memory old_locked = _locked;
 
         _locked.amount += _value;
 
@@ -326,7 +314,10 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
         );
     }
 
-    function create_lock(uint256 _value, uint256 _unlock_time) external nonReentrant {
+    function create_lock(uint256 _value, uint256 _unlock_time)
+        external
+        nonReentrant
+    {
         uint256 unlock_time = (_unlock_time / WEEK) * WEEK;
         LockedBalance storage _locked = locked[msg.sender];
 
@@ -393,27 +384,29 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
         LockedBalance storage _locked = locked[msg.sender];
 
         require(block.timestamp >= _locked.end, "The lock didn't expire");
-        uint256 value = _locked.amount;
+        uint256 locked_amount = _locked.amount;
 
-        LockedBalance storage old_locked = _locked;
+        LockedBalance memory old_locked = _locked;
+
         _locked.end = 0;
         _locked.amount = 0;
+
         locked[msg.sender] = _locked;
 
         uint256 supply_before = _totalSupply;
 
-        _totalSupply = supply_before - value;
+        _totalSupply = supply_before - locked_amount;
 
         _checkpoint(msg.sender, old_locked, _locked);
 
-        IERC20(token).safeTransfer(msg.sender, value);
+        IERC20(token).safeTransfer(msg.sender, locked_amount);
 
         for (uint256 i = 0; i < reward_pools.length; i++) {
             reward_pools[i].withdraw(msg.sender);
         }
 
-        emit Withdraw(msg.sender, value, block.timestamp);
-        emit Supply(supply_before, supply_before - value);
+        emit Withdraw(msg.sender, locked_amount, block.timestamp);
+        emit Supply(supply_before, supply_before - locked_amount);
     }
 
     function find_block_epoch(uint256 _block, uint256 max_epoch)
@@ -492,14 +485,13 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
 
         Point memory upoint = user_point_history[addr][_min];
 
-        uint256 max_epoch = epoch;
-        uint256 _epoch = find_block_epoch(_block, max_epoch);
-        Point memory point_0 = point_history[_epoch];
+        uint256 current_point = find_block_epoch(_block, epoch);
+        Point memory point_0 = point_history[current_point];
         uint256 d_block = 0;
         uint256 d_t = 0;
 
-        if (_epoch < max_epoch) {
-            Point memory point_1 = point_history[_epoch + 1];
+        if (current_point < epoch) {
+            Point memory point_1 = point_history[current_point + 1];
             d_block = point_1.blk - point_0.blk;
             d_t = point_1.ts - point_0.ts;
         } else {
@@ -527,8 +519,8 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
         view
         returns (uint256)
     {
-        Point memory last_point = point;
-        uint256 t_i = (last_point.ts / WEEK) * WEEK;
+        // Point memory last_point = point;
+        uint256 t_i = (point.ts / WEEK) * WEEK;
 
         for (uint256 i = 0; i < 255; i++) {
             t_i += WEEK;
@@ -540,19 +532,19 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
                 d_slope = slope_changes[t_i];
             }
 
-            last_point.bias -= last_point.slope * (t_i - last_point.ts);
+            point.bias -= point.slope * (t_i - point.ts);
 
             if (t_i == t) break;
 
-            last_point.slope += d_slope;
-            last_point.ts = t_i;
+            point.slope += d_slope;
+            point.ts = t_i;
         }
 
-        if (last_point.bias < 0) {
-            last_point.bias = 0;
+        if (point.bias < 0) {
+            point.bias = 0;
         }
 
-        return uint256(last_point.bias);
+        return uint256(point.bias);
     }
 
     function totalSupply(uint256 t) public view returns (uint256) {
@@ -560,8 +552,7 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
             t = block.timestamp;
         }
 
-        uint256 _epoch = epoch;
-        Point memory last_point = point_history[_epoch];
+        Point memory last_point = point_history[epoch];
 
         return supply_at(last_point, t);
     }
@@ -569,13 +560,12 @@ contract LendFlareVotingEscrow is ReentrancyGuard {
     function totalSupplyAt(uint256 _block) public view returns (uint256) {
         require(_block <= block.number);
 
-        uint256 _epoch = epoch;
-        uint256 target_epoch = find_block_epoch(_block, _epoch);
+        uint256 target_epoch = find_block_epoch(_block, epoch);
 
         Point memory point = point_history[target_epoch];
         uint256 dt = 0;
 
-        if (target_epoch < _epoch) {
+        if (target_epoch < epoch) {
             Point memory point_next = point_history[target_epoch + 1];
 
             if (point.blk != point_next.blk) {

@@ -49,5 +49,4 @@ interface IConvexBooster {
         );
 
     function addConvexPool(uint256 _originConvexPid) external;
-    function setOwner(address _owner) external;
 }

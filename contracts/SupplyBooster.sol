@@ -132,6 +132,10 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
         emit SetOwner(_owner);
     }
 
+    /* 
+    The default governance user is GenerateLendingPools contract.
+    It will be set to DAO in the future 
+    */
     function setGovernance(address _governance) public onlyOwner {
         governance = _governance;
 
@@ -170,6 +174,7 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
 
     function addSupplyPool(address _underlyToken, address _supplyTreasuryFund)
         public
+        override
         onlyGovernance
         returns (bool)
     {

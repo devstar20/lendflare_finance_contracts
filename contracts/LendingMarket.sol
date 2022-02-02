@@ -66,7 +66,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         uint256 token0;
         uint256 token0Price;
         uint256 lendingAmount;
-        uint256 lendingInterest;
+        uint256 borrowAmount;
+        uint256 borrowInterest;
         uint256 supportPid;
         int128 curveCoinId;
         uint256 borrowNumbers;
@@ -96,7 +97,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
     struct LendingParams {
         uint256 lendingAmount;
-        uint256 lendingInterest;
+        uint256 borrowAmount;
+        uint256 borrowInterest;
         uint256 lendingRate;
         uint256 utilizationRate;
         uint256 supplyRatePerBlock;
@@ -185,6 +187,10 @@ contract LendingMarket is Initializable, ReentrancyGuard {
         emit SetOwner(_owner);
     }
 
+    /* 
+    The default governance user is GenerateLendingPools contract.
+    It will be set to DAO in the future 
+    */
     function setGovernance(address _governance) public onlyOwner {
         governance = _governance;
 
@@ -284,7 +290,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             lendingId,
             msg.sender,
             lendingParams.lendingAmount,
-            lendingParams.lendingInterest,
+            lendingParams.borrowInterest,
             _borrowBlocks
         );
 
@@ -320,7 +326,8 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 token0: _token0,
                 token0Price: lendingParams.token0Price,
                 lendingAmount: lendingParams.lendingAmount,
-                lendingInterest: lendingParams.lendingInterest,
+                borrowAmount: lendingParams.borrowAmount,
+                borrowInterest: lendingParams.borrowInterest,
                 supportPid: pool.supportPids[_supportPid],
                 curveCoinId: pool.curveCoinIds[_supportPid],
                 borrowNumbers: _borrowBlocks
@@ -402,7 +409,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             }(
                 userLending.lendingId,
                 lendingInfo.user,
-                userLending.lendingInterest
+                userLending.borrowInterest
             );
         } else {
             require(
@@ -420,7 +427,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
                 userLending.lendingId,
                 lendingInfo.user,
                 userLending.lendingAmount,
-                userLending.lendingInterest
+                userLending.borrowInterest
             );
         }
 
@@ -567,7 +574,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
             ISupplyBooster(supplyBooster).liquidate{value: liquidateAmount}(
                 userLending.lendingId,
-                userLending.lendingInterest
+                userLending.borrowInterest
             );
         } else {
             IERC20(underlyToken).safeTransfer(supplyBooster, liquidateAmount);
@@ -583,7 +590,7 @@ contract LendingMarket is Initializable, ReentrancyGuard {
 
             ISupplyBooster(supplyBooster).liquidate(
                 userLending.lendingId,
-                userLending.lendingInterest
+                userLending.borrowInterest
             );
         }
 
@@ -815,11 +822,6 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             lendflareTotalRate = supplyRate.sub(SUPPLY_RATE_DENOMINATOR);
         }
 
-        /* 
-            In order to prevent borrowers from stopping repay loans and liquidated assets fully cover interest and principal, 
-            collateralised asset is valued using equation LendingAmount = token0Price * (1 - _lendingThreshold - _liquidateThreshold)
-         */
-
         uint256 lendingAmount = token0Price.mul(SUPPLY_RATE_DENOMINATOR);
 
         lendingAmount = lendingAmount.mul(
@@ -828,29 +830,20 @@ contract LendingMarket is Initializable, ReentrancyGuard {
             )
         );
 
-        lendingAmount = lendingAmount.div(SUPPLY_RATE_DENOMINATOR).div(
-            THRESHOLD_DENOMINATOR
+        lendingAmount = lendingAmount.div(THRESHOLD_DENOMINATOR);
+
+        uint256 repayBorrowAmount = lendingAmount.div(SUPPLY_RATE_DENOMINATOR);
+        uint256 borrowAmount = lendingAmount.div(
+            SUPPLY_RATE_DENOMINATOR.add(lendflareTotalRate)
         );
 
-        uint256 lendlareInterest = lendingAmount.mul(lendflareTotalRate).div(
-            SUPPLY_RATE_DENOMINATOR
-        );
-        // uint256 borrowAmount = lendingAmount.sub(lendlareInterest);
-        // uint256 repayBorrowAmount = lendingAmount;
-
-        /* 
-            If repaid interest bigger than pricipal, the loans will be rejected
-         */
-
-        require(
-            lendingAmount > lendlareInterest,
-            "LendingMarket: too much interest"
-        );
+        uint256 borrowInterest = repayBorrowAmount.sub(borrowAmount);
 
         return
             LendingParams({
-                lendingAmount: lendingAmount,
-                lendingInterest: lendlareInterest,
+                lendingAmount: repayBorrowAmount,
+                borrowAmount: borrowAmount,
+                borrowInterest: borrowInterest,
                 lendingRate: lendflareTotalRate,
                 utilizationRate: utilizationRate,
                 supplyRatePerBlock: supplyRatePerBlock,

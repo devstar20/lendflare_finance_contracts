@@ -15,17 +15,11 @@ pragma experimental ABIEncoderV2;
 
 import "./supply/SupplyTreasuryFundForCompound.sol";
 import "./convex/IConvexBooster.sol";
+import "./supply/ISupplyBooster.sol";
 
 /* 
 This contract will be executed after the lending contracts is created and will become invalid in the future.
  */
-
-interface ISupplyBooster {
-    function addSupplyPool(address _underlyToken, address _supplyTreasuryFund)
-        external;
-
-    function setOwner(address _owner) external;
-}
 
 interface ILendingMarket {
     function addMarketPool(
@@ -35,8 +29,6 @@ interface ILendingMarket {
         uint256 _lendingThreshold,
         uint256 _liquidateThreshold
     ) external;
-
-    function setOwner(address _owner) external;
 }
 
 contract GenerateLendingPools {
@@ -47,7 +39,7 @@ contract GenerateLendingPools {
     address public supplyRewardFactory;
 
     bool public completed;
-    address public owner;
+    address public deployer;
 
     struct ConvexPool {
         address target;
@@ -65,31 +57,21 @@ contract GenerateLendingPools {
     ConvexPool[] public convexPools;
     LendingMarketMapping[] public lendingMarketMappings;
 
-    event SetOwner(address owner);
-    event RevertOwner(address owner);
+    event RevertOwner(address _owner);
+    event RevertGovernance(address _governance);
 
     constructor(
-        address _owner,
+        address _deployer,
         address _supplyBooster,
         address _convexBooster,
         address _lendingMarket,
         address _supplyRewardFactory
     ) public {
-        owner = _owner;
+        deployer = _deployer;
         supplyBooster = _supplyBooster;
         convexBooster = _convexBooster;
         lendingMarket = _lendingMarket;
         supplyRewardFactory = _supplyRewardFactory;
-    }
-
-    function setOwner(address _owner) public {
-        require(
-            owner == msg.sender,
-            "GenerateLendingPools: !authorized setOwner"
-        );
-        owner = _owner;
-
-        emit SetOwner(_owner);
     }
 
     function createMapping(
@@ -253,7 +235,7 @@ contract GenerateLendingPools {
     }
 
     function run() public {
-        require(owner == msg.sender, "GenerateLendingPools: !authorized run");
+        require(deployer == msg.sender, "GenerateLendingPools: !authorized run");
         require(!completed, "GenerateLendingPools: !completed");
 
         generateSupplyPools();
@@ -261,18 +243,5 @@ contract GenerateLendingPools {
         generateMappingPools();
 
         completed = true;
-    }
-
-    function revertOwner(address _owner) external {
-        require(
-            owner == msg.sender,
-            "GenerateLendingPools: !authorized revertOwner"
-        );
-
-        ISupplyBooster(supplyBooster).setOwner(_owner);
-        ILendingMarket(lendingMarket).setOwner(_owner);
-        IConvexBooster(convexBooster).setOwner(_owner);
-
-        emit RevertOwner(_owner);
     }
 }

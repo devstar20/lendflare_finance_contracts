@@ -24,11 +24,11 @@ interface ISupplyBooster {
             bool isErc20,
             bool shutdown
         );
-        
-    function liquidate(
-        bytes32 _lendingId,
-        uint256 _lendingInterest
-    ) external payable returns (address);
+
+    function liquidate(bytes32 _lendingId, uint256 _lendingInterest)
+        external
+        payable
+        returns (address);
 
     function getLendingUnderlyToken(bytes32 _lendingId)
         external
@@ -58,6 +58,10 @@ interface ISupplyBooster {
         uint256 _lendingAmount,
         uint256 _lendingInterest
     ) external;
+
+    function addSupplyPool(address _underlyToken, address _supplyTreasuryFund)
+        external
+        returns (bool);
 
     function getBorrowRatePerBlock(uint256 _pid)
         external
