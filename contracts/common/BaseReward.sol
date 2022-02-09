@@ -26,7 +26,8 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
     address public rewardToken;
     uint256 public constant duration = 7 days;
 
-    address public owner;
+    // address public owner;
+    mapping(address => bool) private owners;
     address public virtualBalance;
 
     uint256 public periodFinish = 0;
@@ -41,7 +42,8 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
     event Staked(address indexed user);
     event Withdrawn(address indexed user);
     event RewardPaid(address indexed user, uint256 reward);
-    event SetOwner(address owner);
+    event NewOwner(address indexed sender, address operator);
+    event RemoveOwner(address indexed sender, address operator);
 
     modifier updateReward(address account) {
         rewardPerTokenStored = rewardPerToken();
@@ -54,6 +56,11 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
         _;
     }
 
+    modifier onlyOwners() {
+        require(isOwner(msg.sender), "BaseReward: caller is not an owner");
+        _;
+    }
+
     constructor(
         address _reward,
         address _virtualBalance,
@@ -61,7 +68,7 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
     ) public {
         rewardToken = _reward;
         virtualBalance = _virtualBalance;
-        owner = _owner;
+        owners[_owner] = true;
     }
 
     function totalSupply() public view returns (uint256) {
@@ -98,28 +105,47 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
                 .add(rewards[account]);
     }
 
-    function setOwner(address _owner) public override {
-        require(msg.sender == owner, "BaseReward: !authorized setOwner");
-        owner = _owner;
+    function addOwner(address _newOwner) public override onlyOwners {
+        require(!isOwner(_newOwner), "BaseReward: address is already owner");
 
-        emit SetOwner(_owner);
+        owners[_newOwner] = true;
+
+        emit NewOwner(msg.sender, _newOwner);
     }
 
-    function stake(address _for) public override updateReward(_for) {
-        require(
-            msg.sender == owner || msg.sender == virtualBalance,
-            "BaseReward: !authorized stake"
-        );
+    function addOwners(address[] memory _newOwners) external override onlyOwners {
+        for (uint256 i = 0; i < _newOwners.length; i++) {
+            require(
+                !isOwner(_newOwners[i]),
+                "BaseReward: address is already owner"
+            );
 
+            addOwner(_newOwners[i]);
+        }
+    }
+
+    function removeOwner(address _owner) external override onlyOwners {
+        require(isOwner(_owner), "BaseReward: address is not owner");
+
+        owners[_owner] = false;
+
+        emit RemoveOwner(msg.sender, _owner);
+    }
+
+    function isOwner(address _owner) public view override returns (bool) {
+        return owners[_owner];
+    }
+
+    function stake(address _for) public override updateReward(_for) onlyOwners {
         emit Staked(_for);
     }
 
-    function withdraw(address _for) public override updateReward(_for) {
-        require(
-            msg.sender == owner || msg.sender == virtualBalance,
-            "BaseReward: !authorized withdraw"
-        );
-
+    function withdraw(address _for)
+        public
+        override
+        updateReward(_for)
+        onlyOwners
+    {
         emit Withdrawn(_for);
     }
 
@@ -153,11 +179,8 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
         external
         override
         updateReward(address(0))
+        onlyOwners
     {
-        require(
-            msg.sender == owner || msg.sender == virtualBalance,
-            "BaseReward: !authorized notifyRewardAmount"
-        );
         // overflow fix according to https://sips.synthetix.io/sips/sip-77
         require(
             reward < uint256(-1) / 1e18,

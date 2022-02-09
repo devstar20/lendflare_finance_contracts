@@ -47,7 +47,7 @@ contract LendFlareTokenMinter is ReentrancyGuard {
         supplyPoolExtraRewardFactory = _supplyPoolExtraRewardFactory;
     }
 
-    function _mint_for(address gauge_addr, address _for) internal {
+    function _mintFor(address gauge_addr, address _for) internal {
         if (block.timestamp >= launchTime) {
             ILiquidityGauge(gauge_addr).updateReward(_for);
 
@@ -63,22 +63,12 @@ contract LendFlareTokenMinter is ReentrancyGuard {
         }
     }
 
-    /* function mint(address gauge_addr) public nonReentrant {
-        _mint_for(gauge_addr, msg.sender);
-    }
-
-    function mint_many(address[] calldata gauge_addrs) external nonReentrant {
-        for (uint256 i = 0; i < gauge_addrs.length; i++) {
-            _mint_for(gauge_addrs[i], msg.sender);
-        }
-    } */
-
-    function mint_for(address gauge_addr, address _for) public nonReentrant {
+    function mintFor(address gauge_addr, address _for) public nonReentrant {
         require(
             msg.sender == supplyPoolExtraRewardFactory,
-            "LendFlareTokenMinter: !authorized mint_for"
+            "LendFlareTokenMinter: !authorized mintFor"
         );
 
-        _mint_for(gauge_addr, _for);
+        _mintFor(gauge_addr, _for);
     }
 }

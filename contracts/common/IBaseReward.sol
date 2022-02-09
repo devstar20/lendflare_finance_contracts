@@ -18,5 +18,8 @@ interface IBaseReward {
     function withdraw(address _for) external;
     function getReward(address _for) external;
     function notifyRewardAmount(uint256 reward) external;
-    function setOwner(address _owner) external;
+    function addOwner(address _newOwner) external;
+    function addOwners(address[] memory _newOwners) external;
+    function removeOwner(address _owner) external;
+    function isOwner(address _owner) external view returns (bool);
 }

@@ -223,7 +223,8 @@ contract SupplyTreasuryFundForCompound is ReentrancyGuard {
         }
 
         if (_setReward) {
-            IBaseReward(rewardCompPool).setOwner(_newTreasuryFund);
+            IBaseReward(rewardCompPool).addOwner(_newTreasuryFund);
+            IBaseReward(rewardCompPool).removeOwner(address(this));
         }
 
         return bal;

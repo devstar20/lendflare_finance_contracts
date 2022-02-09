@@ -15,12 +15,7 @@ pragma solidity =0.6.12;
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/proxy/Initializable.sol";
-
-interface IRewardPool {
-    function stake(address _for) external;
-
-    function withdraw(address _for) external;
-}
+import "./common/IBaseReward.sol";
 
 contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -34,7 +29,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
 
     string private constant _name = "Vote-escrowed LFT";
     string private constant _symbol = "VeLFT";
-    uint256 private constant _decimals = 18;
+    uint8 private constant _decimals = 18;
     string private _version;
     address public token;
     uint256 public epoch;
@@ -58,7 +53,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         uint256 end;
     }
 
-    IRewardPool[] public reward_pools;
+    IBaseReward[] public reward_pools;
 
     mapping(uint256 => Point) public point_history; // epoch -> unsigned point
     mapping(address => mapping(uint256 => Point)) public user_point_history; // user -> Point[user_epoch]
@@ -98,35 +93,35 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         _;
     }
 
-    function set_owner(address _owner) public onlyOwner {
+    function setOwner(address _owner) public onlyOwner {
         owner = _owner;
 
         emit SetOwner(_owner);
     }
 
-    function reward_pools_length() external view returns (uint256) {
+    function rewardPoolsLength() external view returns (uint256) {
         return reward_pools.length;
     }
 
-    function add_reward_pool(address _v) external onlyOwner returns (bool) {
+    function addRewardPool(address _v) external onlyOwner returns (bool) {
         require(_v != address(0), "!_v");
 
-        reward_pools.push(IRewardPool(_v));
+        reward_pools.push(IBaseReward(_v));
 
         return true;
     }
 
-    function clear_reward_pools() external onlyOwner {
+    function clearRewardPools() external onlyOwner {
         delete reward_pools;
     }
 
-    function get_last_user_slope(address addr) external view returns (uint256) {
+    function getLastUserSlope(address addr) external view returns (uint256) {
         uint256 uepoch = user_point_epoch[addr];
 
         return user_point_history[addr][uepoch].slope;
     }
 
-    function user_point_history_ts(address _addr, uint256 _idx)
+    function userPointHistoryTs(address _addr, uint256 _idx)
         external
         view
         returns (uint256)
@@ -134,14 +129,14 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         return user_point_history[_addr][_idx].ts;
     }
 
-    function locked_end(address _addr) external view returns (uint256) {
+    function lockedEnd(address _addr) external view returns (uint256) {
         return locked[_addr].end;
     }
 
     function _checkpoint(
         address addr,
         LockedBalance memory old_locked,
-        LockedBalance memory new_locked
+        LockedBalance storage new_locked
     ) internal {
         Point memory u_old;
         Point memory u_new;
@@ -261,11 +256,11 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         }
     }
 
-    function _deposit_for(
+    function _depositFor(
         address _addr,
         uint256 _value,
         uint256 unlock_time,
-        LockedBalance memory _locked,
+        LockedBalance storage _locked,
         DepositTypes depositTypes
     ) internal {
         uint256 supply_before = _totalSupply;
@@ -278,8 +273,6 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         if (unlock_time != 0) {
             _locked.end = unlock_time;
         }
-
-        locked[_addr] = _locked;
 
         for (uint256 i = 0; i < reward_pools.length; i++) {
             reward_pools[i].stake(_addr);
@@ -295,7 +288,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         emit Supply(supply_before, supply_before + _value);
     }
 
-    function deposit_for(address _addr, uint256 _value) external nonReentrant {
+    function depositFor(address _addr, uint256 _value) external nonReentrant {
         LockedBalance storage _locked = locked[_addr];
 
         require(_value > 0, "need non-zero value");
@@ -305,16 +298,16 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             "cannot add to expired lock. Withdraw"
         );
 
-        _deposit_for(
+        _depositFor(
             _addr,
             _value,
             0,
-            locked[_addr],
+            _locked,
             DepositTypes.DEPOSIT_FOR_TYPE
         );
     }
 
-    function create_lock(uint256 _value, uint256 _unlock_time)
+    function createLock(uint256 _value, uint256 _unlock_time)
         external
         nonReentrant
     {
@@ -332,7 +325,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             "voting lock can be 4 years max"
         );
 
-        _deposit_for(
+        _depositFor(
             msg.sender,
             _value,
             unlock_time,
@@ -341,7 +334,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         );
     }
 
-    function increase_amount(uint256 _value) external nonReentrant {
+    function increaseAmount(uint256 _value) external nonReentrant {
         LockedBalance storage _locked = locked[msg.sender];
         require(_value > 0, "need non-zero value");
         require(_locked.amount > 0, "No existing lock found");
@@ -350,7 +343,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             "Cannot add to expired lock. Withdraw"
         );
 
-        _deposit_for(
+        _depositFor(
             msg.sender,
             _value,
             0,
@@ -359,7 +352,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         );
     }
 
-    function increase_unlock_time(uint256 _unlock_time) external nonReentrant {
+    function increaseUnlockTime(uint256 _unlock_time) external nonReentrant {
         LockedBalance storage _locked = locked[msg.sender];
         uint256 unlock_time = (_unlock_time / WEEK) * WEEK;
 
@@ -371,7 +364,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             "Voting lock can be 4 years max"
         );
 
-        _deposit_for(
+        _depositFor(
             msg.sender,
             0,
             unlock_time,
@@ -391,8 +384,6 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         _locked.end = 0;
         _locked.amount = 0;
 
-        locked[msg.sender] = _locked;
-
         uint256 supply_before = _totalSupply;
 
         _totalSupply = supply_before - locked_amount;
@@ -409,7 +400,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         emit Supply(supply_before, supply_before - locked_amount);
     }
 
-    function find_block_epoch(uint256 _block, uint256 max_epoch)
+    function findBlockEpoch(uint256 _block, uint256 max_epoch)
         internal
         view
         returns (uint256)
@@ -445,13 +436,16 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             return 0;
         } else {
             Point memory last_point = user_point_history[addr][_epoch];
+
+            require(_t >= last_point.ts, "!_t");
+
             last_point.bias -= last_point.slope * (_t - last_point.ts);
 
             if (last_point.bias < 0) {
                 last_point.bias = 0;
             }
 
-            return uint256(last_point.bias);
+            return last_point.bias;
         }
     }
 
@@ -485,7 +479,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
 
         Point memory upoint = user_point_history[addr][_min];
 
-        uint256 current_point = find_block_epoch(_block, epoch);
+        uint256 current_point = findBlockEpoch(_block, epoch);
         Point memory point_0 = point_history[current_point];
         uint256 d_block = 0;
         uint256 d_t = 0;
@@ -508,18 +502,17 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         upoint.bias -= upoint.slope * (block_time - upoint.ts);
 
         if (upoint.bias >= 0) {
-            return uint256(upoint.bias);
+            return upoint.bias;
         } else {
             return 0;
         }
     }
 
-    function supply_at(Point memory point, uint256 t)
+    function supplyAt(Point memory point, uint256 t)
         internal
         view
         returns (uint256)
     {
-        // Point memory last_point = point;
         uint256 t_i = (point.ts / WEEK) * WEEK;
 
         for (uint256 i = 0; i < 255; i++) {
@@ -531,6 +524,8 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             } else {
                 d_slope = slope_changes[t_i];
             }
+
+            require(t_i >= point.ts, "!t_i");
 
             point.bias -= point.slope * (t_i - point.ts);
 
@@ -544,7 +539,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             point.bias = 0;
         }
 
-        return uint256(point.bias);
+        return point.bias;
     }
 
     function totalSupply(uint256 t) public view returns (uint256) {
@@ -554,13 +549,13 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
 
         Point memory last_point = point_history[epoch];
 
-        return supply_at(last_point, t);
+        return supplyAt(last_point, t);
     }
 
     function totalSupplyAt(uint256 _block) public view returns (uint256) {
         require(_block <= block.number);
 
-        uint256 target_epoch = find_block_epoch(_block, epoch);
+        uint256 target_epoch = findBlockEpoch(_block, epoch);
 
         Point memory point = point_history[target_epoch];
         uint256 dt = 0;
@@ -581,7 +576,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
             }
         }
 
-        return supply_at(point, point.ts + dt);
+        return supplyAt(point, point.ts + dt);
     }
 
     function name() public view virtual returns (string memory) {
@@ -592,7 +587,7 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         return _symbol;
     }
 
-    function decimals() public view virtual returns (uint256) {
+    function decimals() public view virtual returns (uint8) {
         return _decimals;
     }
 

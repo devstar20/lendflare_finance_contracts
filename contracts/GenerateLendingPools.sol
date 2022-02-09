@@ -57,17 +57,21 @@ contract GenerateLendingPools {
     ConvexPool[] public convexPools;
     LendingMarketMapping[] public lendingMarketMappings;
 
-    event RevertOwner(address _owner);
-    event RevertGovernance(address _governance);
+    constructor(address _deployer) public {
+        deployer = _deployer;
+    }
 
-    constructor(
-        address _deployer,
+    function setLendingContract(
         address _supplyBooster,
         address _convexBooster,
         address _lendingMarket,
         address _supplyRewardFactory
     ) public {
-        deployer = _deployer;
+        require(
+            deployer == msg.sender,
+            "GenerateLendingPools: !authorized auth"
+        );
+
         supplyBooster = _supplyBooster;
         convexBooster = _convexBooster;
         lendingMarket = _lendingMarket;
@@ -235,8 +239,13 @@ contract GenerateLendingPools {
     }
 
     function run() public {
-        require(deployer == msg.sender, "GenerateLendingPools: !authorized run");
+        require(deployer == msg.sender, "GenerateLendingPools: !authorized auth");
         require(!completed, "GenerateLendingPools: !completed");
+
+        require(supplyBooster != address(0),"!supplyBooster");
+        require(convexBooster != address(0),"!convexBooster");
+        require(lendingMarket != address(0),"!lendingMarket");
+        require(supplyRewardFactory != address(0),"!supplyRewardFactory");
 
         generateSupplyPools();
         generateConvexPools();

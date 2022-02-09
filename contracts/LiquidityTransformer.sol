@@ -56,13 +56,17 @@ interface IUniswapV2Factory {
         returns (address pair);
 }
 
+interface ILendFlareToken is IERC20 {
+    function setLiquidityFinish() external;
+}
+
 contract LiquidityTransformer is ReentrancyGuard {
     using Address for address payable;
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
     using Address for address;
 
-    IERC20 public lendflareToken;
+    ILendFlareToken public lendflareToken;
     address public uniswapPair;
 
     IUniswapV2Router02 public constant uniswapRouter =
@@ -109,7 +113,7 @@ contract LiquidityTransformer is ReentrancyGuard {
     ) public {
         require(_launchTime > block.timestamp, "!_launchTime");
         launchTime = _launchTime;
-        lendflareToken = IERC20(_lendflareToken);
+        lendflareToken = ILendFlareToken(_lendflareToken);
         teamAddress = _teamAddress;
 
         minInvest = 0.1 ether;
@@ -186,6 +190,7 @@ contract LiquidityTransformer is ReentrancyGuard {
     }
 
     function forwardLiquidity() external nonReentrant {
+        require(msg.sender == tx.origin, "!EOA");
         require(globals.liquidity == false, "!globals.liquidity");
         require(
             block.timestamp > launchTime.add(investmentTime),
@@ -222,6 +227,8 @@ contract LiquidityTransformer is ReentrancyGuard {
 
         globals.liquidity = true;
         globals.endTimeAt = block.timestamp;
+
+        lendflareToken.setLiquidityFinish();
 
         emit UniSwapResult(
             amountToken,

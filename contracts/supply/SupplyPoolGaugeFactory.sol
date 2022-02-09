@@ -19,7 +19,7 @@ import "../common/IVirtualBalanceWrapper.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface ILendFlareToken {
-    function future_epoch_time_write() external returns (uint256);
+    function futureEpochTimeWrite() external returns (uint256);
 
     function rate() external view returns (uint256);
 }
@@ -81,7 +81,7 @@ contract LendFlareGauge is ReentrancyGuard {
         lendFlareGaugeModel = _lendFlareGaugeModel;
     }
 
-    function _update_liquidity_limit(
+    function _updateLiquidityLimit(
         address addr,
         uint256 l,
         uint256 L
@@ -121,7 +121,7 @@ contract LendFlareGauge is ReentrancyGuard {
 
         if (prev_future_epoch >= _period_time) {
             future_epoch_time = ILendFlareToken(lendFlareToken)
-                .future_epoch_time_write();
+                .futureEpochTimeWrite();
             new_rate = ILendFlareToken(lendFlareToken).rate();
 
             require(new_rate > 0, "!new_rate");
@@ -184,7 +184,7 @@ contract LendFlareGauge is ReentrancyGuard {
 
     function updateReward(address addr) public nonReentrant returns (bool) {
         _checkpoint(addr);
-        _update_liquidity_limit(
+        _updateLiquidityLimit(
             addr,
             IVirtualBalanceWrapper(virtualBalance).balanceOf(addr),
             IVirtualBalanceWrapper(virtualBalance).totalSupply()
@@ -193,7 +193,7 @@ contract LendFlareGauge is ReentrancyGuard {
         return true;
     }
 
-    function claimable_tokens(address addr)
+    function claimableTokens(address addr)
         public
         nonReentrant
         returns (uint256)

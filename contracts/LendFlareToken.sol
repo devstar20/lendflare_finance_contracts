@@ -34,14 +34,18 @@ contract LendFlareToken is Initializable, IERC20 {
     uint256 public constant RATE_REDUCTION_COEFFICIENT = 1189207115002721024; // 2 ** (1/4) * 1e18
     uint256 public constant RATE_DENOMINATOR = 10**18;
 
-    int128 public mining_epoch;
-    uint256 public start_epoch_time;
+    uint256 public startEpochTime;
+    uint256 public startEpochSupply;
+    uint256 public miningEpoch;
     uint256 public rate;
-    uint256 public start_epoch_supply;
     uint256 public version;
 
+    address public multiSigUser;
     address public owner;
     address public minter;
+    address public liquidityTransformer;
+
+    bool public liquidity;
 
     event UpdateMiningParameters(uint256 time, uint256 rate, uint256 supply);
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
@@ -63,36 +67,13 @@ contract LendFlareToken is Initializable, IERC20 {
         version = 1;
 
         owner = _owner;
+        multiSigUser = _multiSigUser;
 
-        // total = 1303030301 * 10**_decimals
-        uint256 liquidity_transformer = 909090909 * 10**18;
-        uint256 official_team = 90909090 * 10**18;
-        uint256 merkle_airdrop = 30303030 * 10**18;
-        uint256 early_liquidity_reward = 151515151 * 10**18;
-        uint256 community = 121212121 * 10**18;
+        startEpochTime = block.timestamp - RATE_REDUCTION_TIME;
 
-        uint256 init_supply = liquidity_transformer
-            .add(official_team)
-            .add(merkle_airdrop)
-            .add(early_liquidity_reward)
-            .add(community);
-
-        _balances[_multiSigUser] = init_supply;
-        _totalSupply = init_supply;
-
-        emit Transfer(address(0), _multiSigUser, liquidity_transformer);
-        emit Transfer(address(0), _multiSigUser, official_team);
-        emit Transfer(address(0), _multiSigUser, merkle_airdrop);
-        emit Transfer(address(0), _multiSigUser, early_liquidity_reward);
-        emit Transfer(address(0), _multiSigUser, community);
-
-        start_epoch_time = block.timestamp - RATE_REDUCTION_TIME;
-
-        
-
-        mining_epoch = -1;
+        miningEpoch = 0;
         rate = 0;
-        start_epoch_supply = init_supply;
+        startEpochSupply = 0;
     }
 
     modifier onlyOwner() {
@@ -100,78 +81,125 @@ contract LendFlareToken is Initializable, IERC20 {
         _;
     }
 
-    function set_owner(address _owner) public onlyOwner {
+    modifier onlyLiquidityTransformer() {
+        require(
+            liquidityTransformer == msg.sender,
+            "LendFlareToken: caller is not the liquidityTransformer"
+        );
+        _;
+    }
+
+    function setOwner(address _owner) public onlyOwner {
         owner = _owner;
 
         emit SetOwner(_owner);
     }
 
-    function _update_mining_parameters() internal {
-        uint256 _rate = rate;
-        uint256 _start_epoch_supply = start_epoch_supply;
+    function setLiquidityTransformer(address _v) public onlyOwner {
+        require(_v != address(0), "!_v");
+        require(liquidityTransformer == address(0), "!liquidityTransformer");
 
-        start_epoch_time += RATE_REDUCTION_TIME;
-        mining_epoch += 1;
+        liquidityTransformer = _v;
+
+        uint256 supply = 909090909 * 10**18;
+
+        _balances[liquidityTransformer] = supply;
+        _totalSupply = _totalSupply.add(supply);
+
+        startEpochSupply = startEpochSupply.add(supply);
+
+        emit Transfer(address(0), multiSigUser, supply);
+    }
+
+    function setLiquidityFinish() external onlyLiquidityTransformer {
+        require(!liquidity, "!liquidity");
+
+        uint256 official_team = 90909090 * 10**18;
+        uint256 merkle_airdrop = 30303030 * 10**18;
+        uint256 early_liquidity_reward = 151515151 * 10**18;
+        uint256 community = 121212121 * 10**18;
+
+        uint256 supply = official_team
+            .add(merkle_airdrop)
+            .add(early_liquidity_reward)
+            .add(community);
+
+        _balances[multiSigUser] = supply;
+        _totalSupply = _totalSupply.add(supply);
+
+        startEpochSupply = startEpochSupply.add(supply);
+
+        liquidity = true;
+
+        emit Transfer(address(0), multiSigUser, official_team);
+        emit Transfer(address(0), multiSigUser, merkle_airdrop);
+        emit Transfer(address(0), multiSigUser, early_liquidity_reward);
+        emit Transfer(address(0), multiSigUser, community);
+    }
+
+    function _updateMiningParameters() internal {
+        uint256 _rate = rate;
+        uint256 _startEpochSupply = startEpochSupply;
+
+        startEpochTime += RATE_REDUCTION_TIME;
+        miningEpoch++;
 
         if (_rate == 0) {
             _rate = INITIAL_RATE;
         } else {
-            _start_epoch_supply += _rate * RATE_REDUCTION_TIME;
-            start_epoch_supply = _start_epoch_supply;
+            _startEpochSupply += _rate * RATE_REDUCTION_TIME;
+            startEpochSupply = _startEpochSupply;
             _rate = (_rate * RATE_DENOMINATOR) / RATE_REDUCTION_COEFFICIENT;
         }
 
         rate = _rate;
 
-        emit UpdateMiningParameters(
-            block.timestamp,
-            _rate,
-            _start_epoch_supply
-        );
+        emit UpdateMiningParameters(block.timestamp, _rate, _startEpochSupply);
     }
 
-    function update_mining_parameters() external {
+    function updateMiningParameters() external {
         require(
-            block.timestamp >= start_epoch_time + RATE_REDUCTION_TIME,
+            block.timestamp >= startEpochTime + RATE_REDUCTION_TIME,
             "too soon!"
         );
 
-        _update_mining_parameters();
+        _updateMiningParameters();
     }
 
-    function start_epoch_time_write() external returns (uint256) {
-        if (block.timestamp >= start_epoch_time + RATE_REDUCTION_TIME) {
-            _update_mining_parameters();
+    function startEpochTimeWrite() external returns (uint256) {
+        if (block.timestamp >= startEpochTime + RATE_REDUCTION_TIME) {
+            _updateMiningParameters();
 
-            return start_epoch_time;
+            return startEpochTime;
         }
 
-        return start_epoch_time;
+        return startEpochTime;
     }
 
-    function future_epoch_time_write() external returns (uint256) {
-        if (block.timestamp >= start_epoch_time + RATE_REDUCTION_TIME) {
-            _update_mining_parameters();
+    function futureEpochTimeWrite() external returns (uint256) {
+        if (block.timestamp >= startEpochTime + RATE_REDUCTION_TIME) {
+            _updateMiningParameters();
 
-            return start_epoch_time + RATE_REDUCTION_TIME;
+            return startEpochTime + RATE_REDUCTION_TIME;
         }
 
-        return start_epoch_time + RATE_REDUCTION_TIME;
+        return startEpochTime + RATE_REDUCTION_TIME;
     }
 
-    function available_supply() public view returns (uint256) {
-        return start_epoch_supply + (block.timestamp - start_epoch_time) * rate;
+    function availableSupply() public view returns (uint256) {
+        return startEpochSupply + (block.timestamp - startEpochTime) * rate;
     }
 
-    function mintable_in_timeframe(uint256 start, uint256 end)
+    function mintableInTimeframe(uint256 start, uint256 end)
         external
         view
         returns (uint256)
     {
+        require(start >= startEpochTime, "!start");
         require(start <= end, "start > end");
 
         uint256 to_mint = 0;
-        uint256 current_epoch_time = start_epoch_time;
+        uint256 current_epoch_time = startEpochTime;
         uint256 current_rate = rate;
 
         if (end > current_epoch_time + RATE_REDUCTION_TIME) {
@@ -186,7 +214,7 @@ contract LendFlareToken is Initializable, IERC20 {
             "too far in future"
         );
 
-        // LendFlareToken will not work in 1000 years. Darn!
+        // It will not work in 1000 years.
         for (uint256 i = 0; i < 999; i++) {
             if (end >= current_epoch_time) {
                 uint256 current_end = end;
@@ -222,7 +250,7 @@ contract LendFlareToken is Initializable, IERC20 {
         return to_mint;
     }
 
-    function set_minter(address _minter) public onlyOwner {
+    function setMinter(address _minter) public onlyOwner {
         minter = _minter;
 
         emit SetMinter(_minter);
@@ -347,17 +375,18 @@ contract LendFlareToken is Initializable, IERC20 {
     }
 
     function mint(address account, uint256 amount) public returns (bool) {
-        require(msg.sender == minter);
+        require(msg.sender == minter, "!minter");
+        require(liquidity, "!liquidity");
         require(account != address(0), "mint to the zero address");
 
-        if (block.timestamp >= start_epoch_time + RATE_REDUCTION_TIME) {
-            _update_mining_parameters();
+        if (block.timestamp >= startEpochTime + RATE_REDUCTION_TIME) {
+            _updateMiningParameters();
         }
 
         _totalSupply = _totalSupply.add(amount);
 
         require(
-            _totalSupply <= available_supply(),
+            _totalSupply <= availableSupply(),
             "exceeds allowable mint amount"
         );
 

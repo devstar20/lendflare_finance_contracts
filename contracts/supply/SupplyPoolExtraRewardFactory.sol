@@ -23,7 +23,7 @@ interface ILendFlareGauge {
 }
 
 interface ILendFlareMinter {
-    function mint_for(address gauge_addr, address _for) external;
+    function mintFor(address gauge_addr, address _for) external;
 }
 
 interface ILendflareToken {
@@ -132,6 +132,8 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
                 .createReward(address(0), lendflareVotingEscrow, address(this));
         }
 
+        IBaseReward(rewardVeLendFlarePool).addOwner(lendflareVotingEscrow);
+
         veLendFlarePool[_pid] = rewardVeLendFlarePool;
         gaugePool[_pid] = poolGauge;
     }
@@ -191,7 +193,7 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
         address lendflareMinter = ILendflareToken(lendflareToken).minter();
 
         if (lendflareMinter != address(0)) {
-            ILendFlareMinter(lendflareMinter).mint_for(gaugePool[_pid], _for);
+            ILendFlareMinter(lendflareMinter).mintFor(gaugePool[_pid], _for);
         }
     }
 

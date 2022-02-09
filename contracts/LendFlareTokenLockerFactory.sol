@@ -53,10 +53,10 @@ contract LendFlareTokenLocker is ReentrancyGuard {
         end_time = _end_time;
     }
 
-    function set_owner(address _owner) external {
+    function setOwner(address _owner) external {
         require(
             msg.sender == owner,
-            "LendFlareTokenLocker: !authorized set_owner"
+            "LendFlareTokenLocker: !authorized setOwner"
         );
 
         owner = _owner;
@@ -64,10 +64,10 @@ contract LendFlareTokenLocker is ReentrancyGuard {
         emit SetOwner(_owner);
     }
 
-    function add_tokens(uint256 _amount) public {
+    function addTokens(uint256 _amount) public {
         require(
             msg.sender == owner,
-            "LendFlareTokenLocker: !authorized add_tokens"
+            "LendFlareTokenLocker: !authorized addTokens"
         );
 
         IERC20(token).safeTransferFrom(msg.sender, address(this), _amount);
@@ -103,10 +103,10 @@ contract LendFlareTokenLocker is ReentrancyGuard {
         unallocated_supply -= _total_amount;
     }
 
-    function toggle_disable(address _recipient) public {
+    function toggleDisable(address _recipient) public {
         require(
             msg.sender == owner,
-            "LendFlareTokenLocker: !authorized toggle_disable"
+            "LendFlareTokenLocker: !authorized toggleDisable"
         );
 
         bool is_enabled = disabled_at[_recipient] == 0;
@@ -128,7 +128,7 @@ contract LendFlareTokenLocker is ReentrancyGuard {
             t = block.timestamp;
         }
 
-        uint256 claimable = _total_vested_of(recipient, t) -
+        uint256 claimable = _totalVestedOf(recipient, t) -
             total_claimed[recipient];
 
         total_claimed[recipient] += claimable;
@@ -138,7 +138,7 @@ contract LendFlareTokenLocker is ReentrancyGuard {
         emit Claim(recipient, claimable);
     }
 
-    function _total_vested_of(address _recipient, uint256 _time)
+    function _totalVestedOf(address _recipient, uint256 _time)
         internal
         view
         returns (uint256)
@@ -184,13 +184,13 @@ contract LendFlareTokenLocker is ReentrancyGuard {
             t = block.timestamp;
         }
 
-        return _total_vested_of(_recipient, t) - total_claimed[_recipient];
+        return _totalVestedOf(_recipient, t) - total_claimed[_recipient];
     }
 
     function lockedOf(address _recipient) public view returns (uint256) {
         return
             initial_locked[_recipient] -
-            _total_vested_of(_recipient, block.timestamp);
+            _totalVestedOf(_recipient, block.timestamp);
     }
 
     function min(uint256 a, uint256 b) internal pure returns (uint256) {
