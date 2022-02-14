@@ -113,13 +113,8 @@ contract BaseReward is ReentrancyGuard, IBaseReward {
         emit NewOwner(msg.sender, _newOwner);
     }
 
-    function addOwners(address[] memory _newOwners) external override onlyOwners {
+    function addOwners(address[] calldata _newOwners) external override onlyOwners {
         for (uint256 i = 0; i < _newOwners.length; i++) {
-            require(
-                !isOwner(_newOwners[i]),
-                "BaseReward: address is already owner"
-            );
-
             addOwner(_newOwners[i]);
         }
     }

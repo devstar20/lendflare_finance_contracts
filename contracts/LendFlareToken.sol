@@ -56,6 +56,11 @@ contract LendFlareToken is Initializable, IERC20 {
     );
     event SetMinter(address minter);
     event SetOwner(address owner);
+    event SetLiquidityTransformer(
+        address indexed _from,
+        address indexed _to,
+        uint256 _value
+    );
 
     function initialize(address _owner, address _multiSigUser)
         public
@@ -108,7 +113,7 @@ contract LendFlareToken is Initializable, IERC20 {
 
         startEpochSupply = startEpochSupply.add(supply);
 
-        emit Transfer(address(0), multiSigUser, supply);
+        emit SetLiquidityTransformer(address(0), multiSigUser, supply);
     }
 
     function setLiquidityFinish() external onlyLiquidityTransformer {

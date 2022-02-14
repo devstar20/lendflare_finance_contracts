@@ -554,14 +554,14 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
         }
     }
 
-    function borrow(
+    function _borrow(
         uint256 _pid,
         bytes32 _lendingId,
         address _user,
         uint256 _lendingAmount,
         uint256 _lendingInterest,
         uint256 _borrowNumbers
-    ) public override onlyLendingMarket nonReentrant {
+    ) internal {
         PoolInfo storage pool = poolInfo[_pid];
 
         require(!pool.shutdown, "SupplyBooster: !shutdown");
@@ -609,6 +609,24 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
             _user,
             _pid,
             _lendingId,
+            _lendingAmount,
+            _lendingInterest,
+            _borrowNumbers
+        );
+    }
+
+    function borrow(
+        uint256 _pid,
+        bytes32 _lendingId,
+        address _user,
+        uint256 _lendingAmount,
+        uint256 _lendingInterest,
+        uint256 _borrowNumbers
+    ) public override onlyLendingMarket nonReentrant {
+        _borrow(
+            _pid,
+            _lendingId,
+            _user,
             _lendingAmount,
             _lendingInterest,
             _borrowNumbers
@@ -684,12 +702,8 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
         _repayBorrow(_lendingId, _user, _lendingAmount, _lendingInterest);
     }
 
-    function liquidate(bytes32 _lendingId, uint256 _lendingInterest)
-        public
-        payable
-        override
-        onlyLendingMarket
-        nonReentrant
+    function _liquidate(bytes32 _lendingId, uint256 _lendingInterest)
+        internal
         returns (address)
     {
         LendingInfo storage lendingInfo = lendingInfos[_lendingId];
@@ -741,6 +755,17 @@ contract SupplyBooster is Initializable, ReentrancyGuard, ISupplyBooster {
         lendingInfo.state = LendingInfoState.LIQUIDATE;
 
         emit Liquidate(_lendingId, lendingInfo.lendingAmount, _lendingInterest);
+    }
+
+    function liquidate(bytes32 _lendingId, uint256 _lendingInterest)
+        public
+        payable
+        override
+        onlyLendingMarket
+        nonReentrant
+        returns (address)
+    {
+        return _liquidate(_lendingId, _lendingInterest);
     }
 
     /* view functions */

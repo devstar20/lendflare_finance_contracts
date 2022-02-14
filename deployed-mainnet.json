@@ -1,0 +1,69 @@
+{
+  "virtualBalanceWrapperFactory": {
+    "address": "0x73E59DE51668975aBc9E9Be2aAd668f6E4e727a2",
+    "arguments": []
+  },
+  "convexRewardFactory": {
+    "address": "0xBb93770f4CC5A06cb7f5ae2964F0faF03267E776",
+    "arguments": []
+  },
+  "convexBooster": {
+    "address": "0xAF6356d7d8B570A1F98AEbA86805C980c3dA8da4",
+    "arguments": [],
+    "upgradeableProxy": {
+      "address": "0x4C3c78cEbc9Cc87436dEEd2782998bC002F2B69f",
+      "arguments": [
+        "0xAF6356d7d8B570A1F98AEbA86805C980c3dA8da4",
+        "0xc413AcBb126fa228d7E3d1943bA506b507C91aF7",
+        "0xcc2a9a5b00000000000000000000000063b8c91dd55626db091da26ba96bd8dd3f36820b000000000000000000000000f403c135812408bfbe8713b5a23a04b3d48aae31000000000000000000000000bb93770f4cc5a06cb7f5ae2964f0faf03267e77600000000000000000000000073e59de51668975abc9e9be2aad668f6e4e727a2000000000000000000000000d533a949740bb3306d119cc777fa900ba034cd520000000000000000000000004e3fbd56cd56c3e72c1403e103b45db9da5b9d2b"
+      ]
+    },
+    "originConvexBooster": "0xF403C135812408BFbE8713b5A23a04b3D48AAE31",
+    "crvAddress": "0xD533a949740bb3306d119CC777fa900bA034cd52",
+    "cvxAddress": "0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B",
+    "verify": true
+  },
+  "supplyRewardFactory": {
+    "address": "0x725c9Da2efcf67866632F8fa5009e7859c21BC13",
+    "arguments": []
+  },
+  "supplyBooster": {
+    "address": "0x8237720BBDBcFBe59c3D447bEAF1133B72F3320f",
+    "arguments": [],
+    "upgradeableProxy": {
+      "address": "0x1fA362339392F910BD69af8e13dd20C5942d446F",
+      "arguments": [
+        "0x8237720BBDBcFBe59c3D447bEAF1133B72F3320f",
+        "0xc413AcBb126fa228d7E3d1943bA506b507C91aF7",
+        "0xf8c8765e00000000000000000000000063b8c91dd55626db091da26ba96bd8dd3f36820b00000000000000000000000073e59de51668975abc9e9be2aad668f6e4e727a2000000000000000000000000725c9da2efcf67866632f8fa5009e7859c21bc130000000000000000000000006c91a4a2a2ba651f5dad331ae0c29b6d83143002"
+      ]
+    }
+  },
+  "lendingSponsor": {
+    "address": "0x807047542431d8A6acf255A52eE815a2A957036D",
+    "arguments": []
+  },
+  "lendingMarket": {
+    "address": "0x99F742505243e4a0f43fDF731A0bd746227c6e8b",
+    "arguments": [],
+    "upgradeableProxy": {
+      "address": "0xac86b0d995a2BA4058860EAF0c0230895b8dAa07",
+      "arguments": [
+        "0x99F742505243e4a0f43fDF731A0bd746227c6e8b",
+        "0xc413AcBb126fa228d7E3d1943bA506b507C91aF7",
+        "0xf8c8765e00000000000000000000000063b8c91dd55626db091da26ba96bd8dd3f36820b000000000000000000000000807047542431d8a6acf255a52ee815a2a957036d0000000000000000000000004c3c78cebc9cc87436deed2782998bc002f2b69f0000000000000000000000001fa362339392f910bd69af8e13dd20c5942d446f"
+      ]
+    }
+  },
+  "generateLendingPools": {
+    "address": "0x0429593646407b1F7A7dcE3cE9dC4724bc60aFBd",
+    "arguments": [
+      "0x63B8C91Dd55626DB091Da26bA96bD8Dd3F36820b"
+    ],
+    "verify": true
+  },
+  "LendingMarket_updated_1644668564343": {
+    "address": "0x9997fDE74ACb0C191cdc7FCDC72255D3a3F7f179",
+    "arguments": []
+  }
+}

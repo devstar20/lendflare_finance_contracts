@@ -48,13 +48,8 @@ contract SupplyRewardFactory {
         emit NewOwner(msg.sender, _newOwner);
     }
 
-    function addOwners(address[] memory _newOwners) external onlyOwners {
+    function addOwners(address[] calldata _newOwners) external onlyOwners {
         for (uint256 i = 0; i < _newOwners.length; i++) {
-            require(
-                !isOwner(_newOwners[i]),
-                "SupplyRewardFactory: address is already owner"
-            );
-
             addOwner(_newOwners[i]);
         }
     }

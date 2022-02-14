@@ -1,1 +1,22 @@
+node_modules
+.env
+coverage
+coverage.json
+typechain
+secret.json
+
+#Hardhat files
+cache
+artifacts
+flattened
 .DS_Store
+package-lock.json
+deployed-hardhat.json
+deployed-rinkeby.json
+scripts
+abis
+flattened.sh
+
+
+#private
+secret-*.json

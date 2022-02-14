@@ -25,15 +25,14 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
     using SafeMath for uint256;
 
     // https://curve.readthedocs.io/registry-address-provider.html
-    ICurveAddressProvider public curveAddressProvider =
-        ICurveAddressProvider(0x0000000022D53366457F9d5E68Ec105046FC4383);
+    ICurveAddressProvider public curveAddressProvider;
 
     address public constant ZERO_ADDRESS =
         0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     address public convexRewardFactory;
     address public virtualBalanceWrapperFactory;
-    address public convexBooster;
+    address public originConvexBooster;
     address public rewardCrvToken;
     address public rewardCvxToken;
     uint256 public version;
@@ -112,7 +111,7 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
 
     function initialize(
         address _owner,
-        address _convexBooster,
+        address _originConvexBooster,
         address _convexRewardFactory,
         address _virtualBalanceWrapperFactory,
         address _rewardCrvToken,
@@ -121,16 +120,18 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
         owner = _owner;
         governance = _owner;
         convexRewardFactory = _convexRewardFactory;
-        convexBooster = _convexBooster;
+        originConvexBooster = _originConvexBooster;
         virtualBalanceWrapperFactory = _virtualBalanceWrapperFactory;
         rewardCrvToken = _rewardCrvToken;
         rewardCvxToken = _rewardCvxToken;
         version = 1;
 
+        curveAddressProvider = ICurveAddressProvider(
+            0x0000000022D53366457F9d5E68Ec105046FC4383
+        );
+
         emit Initialized(address(this));
     }
-
-    
 
     function addConvexPool(uint256 _originConvexPid)
         public
@@ -144,7 +145,9 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
             address originCrvRewards,
             address originStash,
             bool shutdown
-        ) = IOriginConvexBooster(convexBooster).poolInfo(_originConvexPid);
+        ) = IOriginConvexBooster(originConvexBooster).poolInfo(
+                _originConvexPid
+            );
 
         require(!shutdown, "!shutdown");
         require(lpToken != address(0), "!lpToken");
@@ -213,7 +216,9 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
             address originCrvRewards,
             ,
             bool shutdown
-        ) = IOriginConvexBooster(convexBooster).poolInfo(pool.originConvexPid);
+        ) = IOriginConvexBooster(originConvexBooster).poolInfo(
+                pool.originConvexPid
+            );
 
         require(!shutdown, "!shutdown");
 
@@ -277,16 +282,16 @@ contract ConvexBooster is Initializable, ReentrancyGuard, IConvexBooster {
         //     address stash,
         //     bool shutdown
         // ) = IOriginConvexBooster(convexBooster).poolInfo(pool.convexPid);
-        (, , , , , bool shutdown) = IOriginConvexBooster(convexBooster)
+        (, , , , , bool shutdown) = IOriginConvexBooster(originConvexBooster)
             .poolInfo(pool.originConvexPid);
 
         require(!shutdown, "!convex shutdown");
         require(!pool.shutdown, "!shutdown");
 
-        IERC20(pool.lpToken).safeApprove(convexBooster, 0);
-        IERC20(pool.lpToken).safeApprove(convexBooster, _amount);
+        IERC20(pool.lpToken).safeApprove(originConvexBooster, 0);
+        IERC20(pool.lpToken).safeApprove(originConvexBooster, _amount);
 
-        IOriginConvexBooster(convexBooster).deposit(
+        IOriginConvexBooster(originConvexBooster).deposit(
             pool.originConvexPid,
             _amount,
             true

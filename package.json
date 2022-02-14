@@ -1,0 +1,27 @@
+{
+  "name": "LendFlare",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "mainnet": "npx hardhat run scripts/mainnet/deploy.js --network mainnet",
+    "verifycode": "npx hardhat run --network mainnet scripts/mainnet/verifycode.js"
+  },
+  "devDependencies": {
+    "@ethersproject/hardware-wallets": "^5.5.0",
+    "@gnosis.pm/safe-core-sdk": "^1.1.1",
+    "@nomiclabs/hardhat-ethers": "^2.0.2",
+    "@nomiclabs/hardhat-etherscan": "^2.1.7",
+    "@nomiclabs/hardhat-waffle": "^2.0.1",
+    "@openzeppelin/contracts": "v3.4.0",
+    "chai": "^4.3.4",
+    "ethereum-waffle": "^3.4.0",
+    "ethers": "^5.5.1",
+    "flat-cache": "^3.0.4",
+    "hardhat-abi-exporter": "^2.2.1",
+    "hardhat-gas-reporter": "^1.0.4",
+    "keccak256": "^1.0.3",
+    "lowdb": "^1.0.0",
+    "merkletreejs": "^0.2.24",
+    "replace-in-file": "^6.3.2",
+    "solidity-coverage": "^0.7.17"
+  }
+}

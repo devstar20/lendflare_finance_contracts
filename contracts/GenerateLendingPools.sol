@@ -31,6 +31,10 @@ interface ILendingMarket {
     ) external;
 }
 
+interface ISupplyRewardFactoryExtra is ISupplyRewardFactory {
+    function addOwner(address _newOwner) external;
+}
+
 contract GenerateLendingPools {
     address public convexBooster;
     address public lendingMarket;
@@ -145,6 +149,8 @@ contract GenerateLendingPools {
                     supplyRewardFactory
                 );
 
+            ISupplyRewardFactoryExtra(supplyRewardFactory).addOwner(address(supplyTreasuryFund));
+
             ISupplyBooster(supplyBooster).addSupplyPool(
                 supplyPools[i],
                 address(supplyTreasuryFund)
@@ -164,7 +170,7 @@ contract GenerateLendingPools {
         convexPools.push( ConvexPool(0x43b4FdFD4Ff969587185cDB6f0BD875c5Fc83f8c, 36) ); // alUSD + 3Crv                    [1, 0] [1, 2] alusd
         convexPools.push( ConvexPool(0xD2967f45c4f384DEEa880F807Be904762a3DeA07, 10) ); // GUSD + 3Crv                     [1, 0] [1, 2] gusd
         convexPools.push( ConvexPool(0x4f3E8F405CF5aFC05D68142F3783bDfE13811522, 13) ); // USDN + 3Crv                     [1, 0] [1, 2] usdn
-        convexPools.push( ConvexPool(0x4f3E8F405CF5aFC05D68142F3783bDfE13811522, 12) ); // USDK + 3Crv                     [1, 0] [1, 2] usdk
+        convexPools.push( ConvexPool(0x97E2768e8E73511cA874545DC5Ff8067eB19B787, 12) ); // USDK + 3Crv                     [1, 0] [1, 2] usdk
         convexPools.push( ConvexPool(0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a, 34) ); // BUSD + 3Crv                     [1, 0] [1, 2] busdv2
         convexPools.push( ConvexPool(0x5B5CFE992AdAC0C9D48E05854B2d91C73a003858, 11) ); // HUSD + 3Crv                     [1, 0] [1, 2] husd
         convexPools.push( ConvexPool(0xC2Ee6b0334C261ED60C72f6054450b61B8f18E35, 15) ); // RSV + 3Crv                      [1, 0] [1, 2] rsv
