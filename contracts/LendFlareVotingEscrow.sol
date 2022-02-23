@@ -17,22 +17,38 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/proxy/Initializable.sol";
 import "./common/IBaseReward.sol";
 
-contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
+// Reference @openzeppelin/contracts/token/ERC20/IERC20.sol
+interface ILendFlareVotingEscrow {
+    /**
+     * @dev Returns the amount of tokens in existence.
+     */
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @dev Returns the amount of tokens owned by `account`.
+     */
+    function balanceOf(address account) external view returns (uint256);
+}
+
+contract LendFlareVotingEscrow2 is
+    Initializable,
+    ReentrancyGuard,
+    ILendFlareVotingEscrow
+{
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
 
     uint256 constant WEEK = 1 weeks; // all future times are rounded by week
     uint256 constant MAXTIME = 4 * 365 * 86400; // 4 years
     uint256 constant MULTIPLIER = 10**18;
+    string constant NAME = "Vote-escrowed LFT";
+    string constant SYMBOL = "VeLFT";
+    uint8 constant DECIMALS = 18;
 
-    uint256 private _totalSupply;
-
-    string private constant _name = "Vote-escrowed LFT";
-    string private constant _symbol = "VeLFT";
-    uint8 private constant _decimals = 18;
-    string private _version;
     address public token;
-    uint256 public epoch;
+    address public rewardManager;
+
+    uint256 public override totalSupply;
 
     enum DepositTypes {
         DEPOSIT_FOR_TYPE,
@@ -53,15 +69,11 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         uint256 end;
     }
 
-    IBaseReward[] public reward_pools;
+    IBaseReward[] public rewardPools;
 
-    mapping(uint256 => Point) public point_history; // epoch -> unsigned point
-    mapping(address => mapping(uint256 => Point)) public user_point_history; // user -> Point[user_epoch]
-    mapping(address => uint256) public user_point_epoch;
-    mapping(uint256 => uint256) public slope_changes; // time -> signed slope change
-    mapping(address => LockedBalance) public locked;
-
-    address public owner;
+    mapping(address => LockedBalance) public lockedBalances;
+    mapping(address => mapping(uint256 => Point)) public userPointHistory; // user => ( user epoch => point )
+    mapping(address => uint256) public userPointEpoch; // user => user epoch
 
     event Deposit(
         address indexed provider,
@@ -71,527 +83,234 @@ contract LendFlareVotingEscrow is Initializable, ReentrancyGuard {
         uint256 ts
     );
     event Withdraw(address indexed provider, uint256 value, uint256 ts);
-    event Supply(uint256 prevSupply, uint256 supply);
-    event SetMinter(address minter);
-    event SetOwner(address owner);
+    event TotalSupply(uint256 prevSupply, uint256 supply);
 
-    function initialize(
-        string memory version_,
-        address token_addr_,
-        address owner_
-    ) public initializer {
-        _version = version_;
-        token = token_addr_;
-        owner = owner_;
+    function initialize(address _token, address _rewardManager)
+        public
+        initializer
+    {
+        token = _token;
+        rewardManager = _rewardManager;
     }
 
-    modifier onlyOwner() {
+    modifier onlyRewardManager() {
         require(
-            owner == msg.sender,
-            "LendFlareVotingEscrow: caller is not the owner"
+            rewardManager == msg.sender,
+            "LendFlareVotingEscrow: caller is not the rewardManager"
         );
         _;
     }
 
-    function setOwner(address _owner) public onlyOwner {
-        owner = _owner;
-
-        emit SetOwner(_owner);
-    }
-
     function rewardPoolsLength() external view returns (uint256) {
-        return reward_pools.length;
+        return rewardPools.length;
     }
 
-    function addRewardPool(address _v) external onlyOwner returns (bool) {
+    function addRewardPool(address _v)
+        external
+        onlyRewardManager
+        returns (bool)
+    {
         require(_v != address(0), "!_v");
 
-        reward_pools.push(IBaseReward(_v));
+        rewardPools.push(IBaseReward(_v));
 
         return true;
     }
 
-    function clearRewardPools() external onlyOwner {
-        delete reward_pools;
+    function clearRewardPools() external onlyRewardManager {
+        delete rewardPools;
     }
 
-    function getLastUserSlope(address addr) external view returns (uint256) {
-        uint256 uepoch = user_point_epoch[addr];
-
-        return user_point_history[addr][uepoch].slope;
-    }
-
-    function userPointHistoryTs(address _addr, uint256 _idx)
-        external
-        view
-        returns (uint256)
+    function checkpoint(address _sender, LockedBalance storage _newLocked)
+        internal
     {
-        return user_point_history[_addr][_idx].ts;
-    }
+        Point storage point = userPointHistory[_sender][
+            ++userPointEpoch[_sender]
+        ];
 
-    function lockedEnd(address _addr) external view returns (uint256) {
-        return locked[_addr].end;
-    }
+        point.ts = block.timestamp;
+        point.blk = block.number;
 
-    function _checkpoint(
-        address addr,
-        LockedBalance memory old_locked,
-        LockedBalance storage new_locked
-    ) internal {
-        Point memory u_old;
-        Point memory u_new;
-        uint256 old_dslope = 0;
-        uint256 new_dslope = 0;
-
-        if (addr != address(0)) {
-            if (old_locked.end > block.timestamp && old_locked.amount > 0) {
-                u_old.slope = old_locked.amount / MAXTIME;
-                u_old.bias = u_old.slope * (old_locked.end - block.timestamp);
-            }
-
-            if (new_locked.end > block.timestamp && new_locked.amount > 0) {
-                u_new.slope = new_locked.amount / MAXTIME;
-                u_new.bias = u_new.slope * (new_locked.end - block.timestamp);
-            }
-
-            old_dslope = slope_changes[old_locked.end];
-
-            if (new_locked.end != 0) {
-                if (new_locked.end == old_locked.end) new_dslope = old_dslope;
-                else new_dslope = slope_changes[new_locked.end];
-            }
-        }
-
-        Point memory last_point = Point({
-            bias: 0,
-            slope: 0,
-            ts: block.timestamp,
-            blk: block.number
-        });
-
-        if (epoch > 0) {
-            last_point = point_history[epoch];
-        }
-
-        uint256 last_checkpoint = last_point.ts;
-        Point memory initial_last_point = last_point;
-        uint256 block_slope = 0; // dblock/dt
-
-        if (block.timestamp > last_point.ts) {
-            block_slope =
-                (MULTIPLIER * (block.number - last_point.blk)) /
-                (block.timestamp - last_point.ts);
-        }
-
-        uint256 t_i = (last_checkpoint / WEEK) * WEEK;
-
-        for (uint256 i = 0; i < 255; i++) {
-            uint256 d_slope = 0;
-            t_i += WEEK;
-
-            if (t_i > block.timestamp) t_i = block.timestamp;
-            else d_slope = slope_changes[t_i];
-
-            last_point.bias -= last_point.slope * (t_i - last_checkpoint);
-            last_point.slope += d_slope;
-
-            if (last_point.bias < 0) last_point.bias = 0;
-
-            if (last_point.slope < 0) last_point.slope = 0;
-
-            last_checkpoint = t_i;
-            last_point.ts = t_i;
-            last_point.blk =
-                initial_last_point.blk +
-                (block_slope * (t_i - initial_last_point.ts)) /
-                MULTIPLIER;
-            epoch += 1;
-
-            if (t_i == block.timestamp) {
-                last_point.blk = block.number;
-                break;
-            } else {
-                point_history[epoch] = last_point;
-            }
-        }
-
-        if (addr != address(0)) {
-            last_point.slope += (u_new.slope - u_old.slope);
-            last_point.bias += (u_new.bias - u_old.bias);
-
-            if (last_point.slope < 0) last_point.slope = 0;
-            if (last_point.bias < 0) last_point.bias = 0;
-        }
-
-        // Record the changed point into history
-        point_history[epoch] = last_point;
-
-        if (addr != address(0)) {
-            // Schedule the slope changes (slope is going down)
-            // We subtract new_user_slope from [new_locked.end]
-            // and add old_user_slope to [old_locked.end]
-            if (old_locked.end > block.timestamp) {
-                // old_dslope was <something> - u_old.slope, so we cancel that
-                old_dslope += u_old.slope;
-
-                if (new_locked.end == old_locked.end) old_dslope -= u_new.slope; // It was a new deposit, not extension
-
-                slope_changes[old_locked.end] = old_dslope;
-            }
-
-            if (new_locked.end > block.timestamp) {
-                if (new_locked.end > old_locked.end) {
-                    new_dslope -= u_new.slope; // old slope disappeared at this point
-                    slope_changes[new_locked.end] = new_dslope;
-                }
-            }
-
-            // Now handle user history
-            uint256 user_epoch = user_point_epoch[addr] + 1;
-
-            user_point_epoch[addr] = user_epoch;
-            u_new.ts = block.timestamp;
-            u_new.blk = block.number;
-            user_point_history[addr][user_epoch] = u_new;
+        if (_newLocked.end > block.timestamp) {
+            point.slope = _newLocked.amount.div(MAXTIME);
+            point.bias = point.slope.mul(_newLocked.end.sub(block.timestamp));
         }
     }
 
     function _depositFor(
-        address _addr,
-        uint256 _value,
-        uint256 unlock_time,
+        address _sender,
+        uint256 _amount,
+        uint256 _unlockTime,
         LockedBalance storage _locked,
-        DepositTypes depositTypes
+        DepositTypes _depositTypes
     ) internal {
-        uint256 supply_before = _totalSupply;
+        uint256 oldTotalSupply = totalSupply;
 
-        _totalSupply = supply_before + _value;
-        LockedBalance memory old_locked = _locked;
-
-        _locked.amount += _value;
-
-        if (unlock_time != 0) {
-            _locked.end = unlock_time;
+        if (_amount > 0) {
+            IERC20(token).safeTransferFrom(_sender, address(this), _amount);
         }
 
-        for (uint256 i = 0; i < reward_pools.length; i++) {
-            reward_pools[i].stake(_addr);
+        _locked.amount = _locked.amount.add(_amount);
+        totalSupply = totalSupply.add(_amount);
+
+        if (_unlockTime > 0) {
+            _locked.end = _unlockTime;
         }
 
-        _checkpoint(_addr, old_locked, _locked);
-
-        if (_value != 0) {
-            IERC20(token).safeTransferFrom(_addr, address(this), _value);
+        for (uint256 i = 0; i < rewardPools.length; i++) {
+            rewardPools[i].stake(_sender);
         }
 
-        emit Deposit(_addr, _value, _locked.end, depositTypes, block.timestamp);
-        emit Supply(supply_before, supply_before + _value);
+        checkpoint(_sender, _locked);
+
+        emit Deposit(
+            _sender,
+            _amount,
+            _locked.end,
+            _depositTypes,
+            block.timestamp
+        );
+        emit TotalSupply(oldTotalSupply, totalSupply);
     }
 
-    function depositFor(address _addr, uint256 _value) external nonReentrant {
-        LockedBalance storage _locked = locked[_addr];
+    function depositFor(uint256 _amount) external nonReentrant {
+        LockedBalance storage locked = lockedBalances[msg.sender];
 
-        require(_value > 0, "need non-zero value");
-        require(_locked.amount > 0, "no existing lock found");
+        require(_amount > 0, "need non-zero value");
+        require(locked.amount > 0, "no existing lock found");
         require(
-            _locked.end > block.timestamp,
+            locked.end > block.timestamp,
             "cannot add to expired lock. Withdraw"
         );
 
         _depositFor(
-            _addr,
-            _value,
+            msg.sender,
+            _amount,
             0,
-            _locked,
+            locked,
             DepositTypes.DEPOSIT_FOR_TYPE
         );
     }
 
-    function createLock(uint256 _value, uint256 _unlock_time)
+    function createLock(uint256 _amount, uint256 _unlockTime)
         external
         nonReentrant
     {
-        uint256 unlock_time = (_unlock_time / WEEK) * WEEK;
-        LockedBalance storage _locked = locked[msg.sender];
+        LockedBalance storage locked = lockedBalances[msg.sender];
+        uint256 availableTime = formatWeekTs(_unlockTime);
 
-        require(_value > 0, "need non-zero value");
-        require(_locked.amount == 0, "Withdraw old tokens first");
+        require(_amount > 0, "need non-zero value");
+        require(locked.amount == 0, "Withdraw old tokens first");
         require(
-            unlock_time > block.timestamp,
+            availableTime > block.timestamp,
             "can only lock until time in the future"
         );
         require(
-            unlock_time <= block.timestamp + MAXTIME,
+            availableTime <= block.timestamp + MAXTIME,
             "voting lock can be 4 years max"
         );
 
         _depositFor(
             msg.sender,
-            _value,
-            unlock_time,
-            _locked,
+            _amount,
+            availableTime,
+            locked,
             DepositTypes.CREATE_LOCK_TYPE
         );
     }
 
-    function increaseAmount(uint256 _value) external nonReentrant {
-        LockedBalance storage _locked = locked[msg.sender];
-        require(_value > 0, "need non-zero value");
-        require(_locked.amount > 0, "No existing lock found");
+    function increaseAmount(uint256 _amount) external nonReentrant {
+        LockedBalance storage locked = lockedBalances[msg.sender];
+        require(_amount > 0, "need non-zero value");
+        require(locked.amount > 0, "No existing lock found");
         require(
-            _locked.end > block.timestamp,
+            locked.end > block.timestamp,
             "Cannot add to expired lock. Withdraw"
         );
 
         _depositFor(
             msg.sender,
-            _value,
+            _amount,
             0,
-            _locked,
+            locked,
             DepositTypes.INCREASE_LOCK_AMOUNT
         );
     }
 
-    function increaseUnlockTime(uint256 _unlock_time) external nonReentrant {
-        LockedBalance storage _locked = locked[msg.sender];
-        uint256 unlock_time = (_unlock_time / WEEK) * WEEK;
+    function increaseUnlockTime(uint256 _unlockTime) external nonReentrant {
+        LockedBalance storage locked = lockedBalances[msg.sender];
+        uint256 availableTime = formatWeekTs(_unlockTime);
 
-        require(_locked.end > block.timestamp, "Lock expired");
-        require(_locked.amount > 0, "Nothing is locked");
-        require(unlock_time > _locked.end, "Can only increase lock duration");
+        require(locked.end > block.timestamp, "Lock expired");
+        require(locked.amount > 0, "Nothing is locked");
+        require(availableTime > locked.end, "Can only increase lock duration");
         require(
-            unlock_time <= block.timestamp + MAXTIME,
+            availableTime <= block.timestamp + MAXTIME,
             "Voting lock can be 4 years max"
         );
 
         _depositFor(
             msg.sender,
             0,
-            unlock_time,
-            _locked,
+            availableTime,
+            locked,
             DepositTypes.INCREASE_UNLOCK_TIME
         );
     }
 
     function withdraw() public nonReentrant {
-        LockedBalance storage _locked = locked[msg.sender];
+        LockedBalance storage locked = lockedBalances[msg.sender];
 
-        require(block.timestamp >= _locked.end, "The lock didn't expire");
-        uint256 locked_amount = _locked.amount;
+        require(block.timestamp >= locked.end, "The lock didn't expire");
 
-        LockedBalance memory old_locked = _locked;
+        uint256 oldTotalSupply = totalSupply;
+        uint256 lockedAmount = locked.amount;
 
-        _locked.end = 0;
-        _locked.amount = 0;
+        totalSupply = totalSupply.sub(lockedAmount);
 
-        uint256 supply_before = _totalSupply;
+        locked.amount = 0;
+        locked.end = 0;
 
-        _totalSupply = supply_before - locked_amount;
+        checkpoint(msg.sender, locked);
 
-        _checkpoint(msg.sender, old_locked, _locked);
+        IERC20(token).safeTransfer(msg.sender, lockedAmount);
 
-        IERC20(token).safeTransfer(msg.sender, locked_amount);
-
-        for (uint256 i = 0; i < reward_pools.length; i++) {
-            reward_pools[i].withdraw(msg.sender);
+        for (uint256 i = 0; i < rewardPools.length; i++) {
+            rewardPools[i].withdraw(msg.sender);
         }
 
-        emit Withdraw(msg.sender, locked_amount, block.timestamp);
-        emit Supply(supply_before, supply_before - locked_amount);
+        emit Withdraw(msg.sender, lockedAmount, block.timestamp);
+        emit TotalSupply(oldTotalSupply, totalSupply);
     }
 
-    function findBlockEpoch(uint256 _block, uint256 max_epoch)
-        internal
+    function formatWeekTs(uint256 _unixTime) public pure returns (uint256) {
+        return _unixTime.div(WEEK).mul(WEEK);
+    }
+
+    function balanceOf(address _sender)
+        external
         view
+        override
         returns (uint256)
     {
-        uint256 _min = 0;
-        uint256 _max = max_epoch;
+        uint256 userEpoch = userPointEpoch[_sender];
 
-        for (uint256 i = 0; i < 128; i++) {
-            if (_min >= _max) {
-                break;
-            }
+        if (userEpoch == 0) return 0;
 
-            uint256 _mid = (_min + _max + 1) / 2;
+        Point storage point = userPointHistory[_sender][userEpoch];
 
-            if (point_history[_mid].blk <= _block) {
-                _min = _mid;
-            } else {
-                _max = _mid - 1;
-            }
-        }
-
-        return _min;
+        return point.bias.sub(point.slope.mul(block.timestamp.sub(point.ts)));
     }
 
-    function balanceOf(address addr, uint256 _t) public view returns (uint256) {
-        if (_t == 0) {
-            _t = block.timestamp;
-        }
-
-        uint256 _epoch = user_point_epoch[addr];
-
-        if (_epoch == 0) {
-            return 0;
-        } else {
-            Point memory last_point = user_point_history[addr][_epoch];
-
-            require(_t >= last_point.ts, "!_t");
-
-            last_point.bias -= last_point.slope * (_t - last_point.ts);
-
-            if (last_point.bias < 0) {
-                last_point.bias = 0;
-            }
-
-            return last_point.bias;
-        }
+    function name() public pure returns (string memory) {
+        return NAME;
     }
 
-    function balanceOf(address account) public view returns (uint256) {
-        return balanceOf(account, block.timestamp);
+    function symbol() public pure returns (string memory) {
+        return SYMBOL;
     }
 
-    function balanceOfAt(address addr, uint256 _block)
-        public
-        view
-        returns (uint256)
-    {
-        require(_block <= block.number);
-
-        uint256 _min = 0;
-        uint256 _max = user_point_epoch[addr];
-
-        for (uint256 i = 0; i < 128; i++) {
-            if (_min >= _max) {
-                break;
-            }
-
-            uint256 _mid = (_min + _max + 1) / 2;
-
-            if (user_point_history[addr][_mid].blk <= _block) {
-                _min = _mid;
-            } else {
-                _max = _mid - 1;
-            }
-        }
-
-        Point memory upoint = user_point_history[addr][_min];
-
-        uint256 current_point = findBlockEpoch(_block, epoch);
-        Point memory point_0 = point_history[current_point];
-        uint256 d_block = 0;
-        uint256 d_t = 0;
-
-        if (current_point < epoch) {
-            Point memory point_1 = point_history[current_point + 1];
-            d_block = point_1.blk - point_0.blk;
-            d_t = point_1.ts - point_0.ts;
-        } else {
-            d_block = block.number - point_0.blk;
-            d_t = block.timestamp - point_0.ts;
-        }
-
-        uint256 block_time = point_0.ts;
-
-        if (d_block != 0) {
-            block_time += (d_t * (_block - point_0.blk)) / d_block;
-        }
-
-        upoint.bias -= upoint.slope * (block_time - upoint.ts);
-
-        if (upoint.bias >= 0) {
-            return upoint.bias;
-        } else {
-            return 0;
-        }
-    }
-
-    function supplyAt(Point memory point, uint256 t)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 t_i = (point.ts / WEEK) * WEEK;
-
-        for (uint256 i = 0; i < 255; i++) {
-            t_i += WEEK;
-            uint256 d_slope = 0;
-
-            if (t_i > t) {
-                t_i = t;
-            } else {
-                d_slope = slope_changes[t_i];
-            }
-
-            require(t_i >= point.ts, "!t_i");
-
-            point.bias -= point.slope * (t_i - point.ts);
-
-            if (t_i == t) break;
-
-            point.slope += d_slope;
-            point.ts = t_i;
-        }
-
-        if (point.bias < 0) {
-            point.bias = 0;
-        }
-
-        return point.bias;
-    }
-
-    function totalSupply(uint256 t) public view returns (uint256) {
-        if (t == 0) {
-            t = block.timestamp;
-        }
-
-        Point memory last_point = point_history[epoch];
-
-        return supplyAt(last_point, t);
-    }
-
-    function totalSupplyAt(uint256 _block) public view returns (uint256) {
-        require(_block <= block.number);
-
-        uint256 target_epoch = findBlockEpoch(_block, epoch);
-
-        Point memory point = point_history[target_epoch];
-        uint256 dt = 0;
-
-        if (target_epoch < epoch) {
-            Point memory point_next = point_history[target_epoch + 1];
-
-            if (point.blk != point_next.blk) {
-                dt =
-                    ((_block - point.blk) * (point_next.ts - point.ts)) /
-                    (point_next.blk - point.blk);
-            }
-        } else {
-            if (point.blk != block.number) {
-                dt =
-                    ((_block - point.blk) * (block.timestamp - point.ts)) /
-                    (block.number - point.blk);
-            }
-        }
-
-        return supplyAt(point, point.ts + dt);
-    }
-
-    function name() public view virtual returns (string memory) {
-        return _name;
-    }
-
-    function symbol() public view virtual returns (string memory) {
-        return _symbol;
-    }
-
-    function decimals() public view virtual returns (uint8) {
-        return _decimals;
-    }
-
-    function totalSupply() public view returns (uint256) {
-        return _totalSupply;
+    function decimals() public pure returns (uint8) {
+        return DECIMALS;
     }
 }

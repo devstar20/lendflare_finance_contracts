@@ -63,7 +63,7 @@ contract LendFlareGauge is ReentrancyGuard {
         address user,
         uint256 original_balance,
         uint256 original_supply,
-        uint256 working_balance,
+        uint256 reward_liquidity_limits,
         uint256 working_supply
     );
 
@@ -129,7 +129,7 @@ contract LendFlareGauge is ReentrancyGuard {
             inflation_rate = new_rate;
         }
 
-        uint256 _working_balance = rewardLiquidityLimits[addr];
+        uint256 _reward_liquidity_limits = rewardLiquidityLimits[addr];
         uint256 _working_supply = working_supply;
 
         if (block.timestamp > _period_time) {
@@ -175,7 +175,7 @@ contract LendFlareGauge is ReentrancyGuard {
         integrate_inv_supply[period] = _integrate_inv_supply;
 
         totalAccrued[addr] +=
-            (_working_balance *
+            (_reward_liquidity_limits *
                 (_integrate_inv_supply - integrate_inv_supply_of[addr])) /
             10**18;
         integrate_inv_supply_of[addr] = _integrate_inv_supply;

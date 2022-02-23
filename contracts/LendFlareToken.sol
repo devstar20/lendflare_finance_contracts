@@ -74,7 +74,7 @@ contract LendFlareToken is Initializable, IERC20 {
         owner = _owner;
         multiSigUser = _multiSigUser;
 
-        startEpochTime = block.timestamp - RATE_REDUCTION_TIME;
+        startEpochTime = block.timestamp.sub(RATE_REDUCTION_TIME);
 
         miningEpoch = 0;
         rate = 0;
@@ -119,14 +119,14 @@ contract LendFlareToken is Initializable, IERC20 {
     function setLiquidityFinish() external onlyLiquidityTransformer {
         require(!liquidity, "!liquidity");
 
-        uint256 official_team = 90909090 * 10**18;
-        uint256 merkle_airdrop = 30303030 * 10**18;
-        uint256 early_liquidity_reward = 151515151 * 10**18;
+        uint256 officialTeam = 90909090 * 10**18;
+        uint256 merkleAirdrop = 30303030 * 10**18;
+        uint256 earlyLiquidityReward = 151515151 * 10**18;
         uint256 community = 121212121 * 10**18;
 
-        uint256 supply = official_team
-            .add(merkle_airdrop)
-            .add(early_liquidity_reward)
+        uint256 supply = officialTeam
+            .add(merkleAirdrop)
+            .add(earlyLiquidityReward)
             .add(community);
 
         _balances[multiSigUser] = supply;
@@ -136,35 +136,33 @@ contract LendFlareToken is Initializable, IERC20 {
 
         liquidity = true;
 
-        emit Transfer(address(0), multiSigUser, official_team);
-        emit Transfer(address(0), multiSigUser, merkle_airdrop);
-        emit Transfer(address(0), multiSigUser, early_liquidity_reward);
+        emit Transfer(address(0), multiSigUser, officialTeam);
+        emit Transfer(address(0), multiSigUser, merkleAirdrop);
+        emit Transfer(address(0), multiSigUser, earlyLiquidityReward);
         emit Transfer(address(0), multiSigUser, community);
     }
 
     function _updateMiningParameters() internal {
-        uint256 _rate = rate;
-        uint256 _startEpochSupply = startEpochSupply;
+        startEpochTime = startEpochTime.add(RATE_REDUCTION_TIME);
 
-        startEpochTime += RATE_REDUCTION_TIME;
         miningEpoch++;
 
-        if (_rate == 0) {
-            _rate = INITIAL_RATE;
+        if (rate == 0) {
+            rate = INITIAL_RATE;
         } else {
-            _startEpochSupply += _rate * RATE_REDUCTION_TIME;
-            startEpochSupply = _startEpochSupply;
-            _rate = (_rate * RATE_DENOMINATOR) / RATE_REDUCTION_COEFFICIENT;
+            startEpochSupply = startEpochSupply.add(
+                rate.mul(RATE_REDUCTION_TIME)
+            );
+
+            rate = rate.mul(RATE_DENOMINATOR).div(RATE_REDUCTION_COEFFICIENT);
         }
 
-        rate = _rate;
-
-        emit UpdateMiningParameters(block.timestamp, _rate, _startEpochSupply);
+        emit UpdateMiningParameters(block.timestamp, rate, startEpochSupply);
     }
 
     function updateMiningParameters() external {
         require(
-            block.timestamp >= startEpochTime + RATE_REDUCTION_TIME,
+            block.timestamp >= startEpochTime.add(RATE_REDUCTION_TIME),
             "too soon!"
         );
 
@@ -172,90 +170,29 @@ contract LendFlareToken is Initializable, IERC20 {
     }
 
     function startEpochTimeWrite() external returns (uint256) {
-        if (block.timestamp >= startEpochTime + RATE_REDUCTION_TIME) {
+        if (block.timestamp >= startEpochTime.add(RATE_REDUCTION_TIME)) {
             _updateMiningParameters();
-
-            return startEpochTime;
         }
 
         return startEpochTime;
     }
 
     function futureEpochTimeWrite() external returns (uint256) {
-        if (block.timestamp >= startEpochTime + RATE_REDUCTION_TIME) {
+        if (block.timestamp >= startEpochTime.add(RATE_REDUCTION_TIME)) {
             _updateMiningParameters();
-
-            return startEpochTime + RATE_REDUCTION_TIME;
         }
 
-        return startEpochTime + RATE_REDUCTION_TIME;
+        return startEpochTime.add(RATE_REDUCTION_TIME);
     }
 
     function availableSupply() public view returns (uint256) {
-        return startEpochSupply + (block.timestamp - startEpochTime) * rate;
-    }
-
-    function mintableInTimeframe(uint256 start, uint256 end)
-        external
-        view
-        returns (uint256)
-    {
-        require(start >= startEpochTime, "!start");
-        require(start <= end, "start > end");
-
-        uint256 to_mint = 0;
-        uint256 current_epoch_time = startEpochTime;
-        uint256 current_rate = rate;
-
-        if (end > current_epoch_time + RATE_REDUCTION_TIME) {
-            current_epoch_time += RATE_REDUCTION_TIME;
-            current_rate =
-                (current_rate * RATE_DENOMINATOR) /
-                RATE_REDUCTION_COEFFICIENT;
-        }
-
-        require(
-            end <= current_epoch_time + RATE_REDUCTION_TIME,
-            "too far in future"
-        );
-
-        // It will not work in 1000 years.
-        for (uint256 i = 0; i < 999; i++) {
-            if (end >= current_epoch_time) {
-                uint256 current_end = end;
-
-                if (current_end > current_epoch_time + RATE_REDUCTION_TIME) {
-                    current_end = current_epoch_time + RATE_REDUCTION_TIME;
-                }
-
-                uint256 current_start = start;
-
-                if (current_start >= current_epoch_time + RATE_REDUCTION_TIME) {
-                    break;
-                } else if (current_start < current_epoch_time) {
-                    current_start = current_epoch_time;
-                }
-
-                to_mint += current_rate * (current_end - current_start);
-
-                if (start >= current_epoch_time) break;
-
-                current_epoch_time -= RATE_REDUCTION_TIME;
-                current_rate =
-                    (current_rate * RATE_REDUCTION_COEFFICIENT) /
-                    RATE_DENOMINATOR;
-
-                require(
-                    current_rate <= INITIAL_RATE,
-                    "this should never happen"
-                );
-            }
-        }
-
-        return to_mint;
+        return
+            startEpochSupply.add(block.timestamp.sub(startEpochTime).mul(rate));
     }
 
     function setMinter(address _minter) public onlyOwner {
+        require(_minter != address(0), "!_minter");
+
         minter = _minter;
 
         emit SetMinter(_minter);
@@ -381,10 +318,11 @@ contract LendFlareToken is Initializable, IERC20 {
 
     function mint(address account, uint256 amount) public returns (bool) {
         require(msg.sender == minter, "!minter");
-        require(liquidity, "!liquidity");
         require(account != address(0), "mint to the zero address");
 
-        if (block.timestamp >= startEpochTime + RATE_REDUCTION_TIME) {
+        if (!liquidity) return false;
+
+        if (block.timestamp >= startEpochTime.add(RATE_REDUCTION_TIME)) {
             _updateMiningParameters();
         }
 
