@@ -30,7 +30,7 @@ interface ILendFlareVotingEscrow {
     function balanceOf(address account) external view returns (uint256);
 }
 
-contract LendFlareVotingEscrow2 is
+contract LendFlareVotingEscrow is
     Initializable,
     ReentrancyGuard,
     ILendFlareVotingEscrow
@@ -40,7 +40,6 @@ contract LendFlareVotingEscrow2 is
 
     uint256 constant WEEK = 1 weeks; // all future times are rounded by week
     uint256 constant MAXTIME = 4 * 365 * 86400; // 4 years
-    uint256 constant MULTIPLIER = 10**18;
     string constant NAME = "Vote-escrowed LFT";
     string constant SYMBOL = "VeLFT";
     uint8 constant DECIMALS = 18;
@@ -61,7 +60,6 @@ contract LendFlareVotingEscrow2 is
         uint256 bias;
         uint256 slope; // dweight / dt
         uint256 ts; // timestamp
-        uint256 blk; // block number
     }
 
     struct LockedBalance {
@@ -84,6 +82,9 @@ contract LendFlareVotingEscrow2 is
     );
     event Withdraw(address indexed provider, uint256 value, uint256 ts);
     event TotalSupply(uint256 prevSupply, uint256 supply);
+
+    // @custom:oz-upgrades-unsafe-allow constructor
+    constructor() public initializer {}
 
     function initialize(address _token, address _rewardManager)
         public
@@ -121,7 +122,7 @@ contract LendFlareVotingEscrow2 is
         delete rewardPools;
     }
 
-    function checkpoint(address _sender, LockedBalance storage _newLocked)
+    function _checkpoint(address _sender, LockedBalance storage _newLocked)
         internal
     {
         Point storage point = userPointHistory[_sender][
@@ -129,7 +130,6 @@ contract LendFlareVotingEscrow2 is
         ];
 
         point.ts = block.timestamp;
-        point.blk = block.number;
 
         if (_newLocked.end > block.timestamp) {
             point.slope = _newLocked.amount.div(MAXTIME);
@@ -161,7 +161,7 @@ contract LendFlareVotingEscrow2 is
             rewardPools[i].stake(_sender);
         }
 
-        checkpoint(_sender, _locked);
+        _checkpoint(_sender, _locked);
 
         emit Deposit(
             _sender,
@@ -173,7 +173,7 @@ contract LendFlareVotingEscrow2 is
         emit TotalSupply(oldTotalSupply, totalSupply);
     }
 
-    function depositFor(uint256 _amount) external nonReentrant {
+    function deposit(uint256 _amount) external nonReentrant {
         LockedBalance storage locked = lockedBalances[msg.sender];
 
         require(_amount > 0, "need non-zero value");
@@ -271,7 +271,7 @@ contract LendFlareVotingEscrow2 is
         locked.amount = 0;
         locked.end = 0;
 
-        checkpoint(msg.sender, locked);
+        _checkpoint(msg.sender, locked);
 
         IERC20(token).safeTransfer(msg.sender, lockedAmount);
 

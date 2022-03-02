@@ -14,6 +14,7 @@ pragma solidity =0.6.12;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/proxy/Initializable.sol";
 import "../common/IVirtualBalanceWrapper.sol";
 import "../common/IBaseReward.sol";
 import "./ISupplyBooster.sol";
@@ -28,6 +29,10 @@ interface ILendFlareMinter {
 
 interface ILendflareToken {
     function minter() external view returns (address);
+}
+
+interface ILendFlareVotingEscrow {
+    function addRewardPool(address _v) external returns (bool);
 }
 
 interface ISupplyPoolGaugeFactory {
@@ -54,7 +59,7 @@ interface ISupplyRewardFactory {
     ) external returns (address);
 }
 
-contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
+contract SupplyPoolExtraRewardFactory is ReentrancyGuard, Initializable {
     using Address for address payable;
     using SafeERC20 for IERC20;
 
@@ -70,16 +75,19 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
     mapping(uint256 => address) public veLendFlarePool; // pid => extra rewards
     mapping(uint256 => address) public gaugePool; // pid => extra rewards
 
-    constructor(
+    // @custom:oz-upgrades-unsafe-allow constructor
+    constructor() public initializer {}
+
+    function initialize(
         address _supplyBooster,
         address _supplyRewardFactory,
         address _supplyPoolGaugeFactory,
         address _lendflareGaugeModel,
         address _lendflareVotingEscrow,
-        address _lendflareToken
-    ) public {
-        owner = msg.sender;
-
+        address _lendflareToken,
+        address _owner
+    ) public initializer {
+        owner = _owner;
         supplyBooster = _supplyBooster;
         supplyRewardFactory = _supplyRewardFactory;
         supplyPoolGaugeFactory = _supplyPoolGaugeFactory;
@@ -132,6 +140,9 @@ contract SupplyPoolExtraRewardFactory is ReentrancyGuard {
                 .createReward(address(0), lendflareVotingEscrow, address(this));
         }
 
+        ILendFlareVotingEscrow(lendflareVotingEscrow).addRewardPool(
+            rewardVeLendFlarePool
+        );
         IBaseReward(rewardVeLendFlarePool).addOwner(lendflareVotingEscrow);
 
         veLendFlarePool[_pid] = rewardVeLendFlarePool;
