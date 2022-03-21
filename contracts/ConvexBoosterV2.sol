@@ -53,10 +53,10 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         bool shutdown;
     }
 
-    struct ZapInfo {
+    struct MetaPoolInfo {
+        address swapAddress;
         address zapAddress;
         address basePoolAddress;
-        address[] underlyTokens;
         bool isMeta;
         bool isMetaFactory;
     }
@@ -64,7 +64,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
     PoolInfo[] public override poolInfo;
 
     mapping(uint256 => mapping(address => uint256)) public frozenTokens; // pid => (user => amount)
-    mapping(address => ZapInfo) public curveZaps; // curveSwapAddress => zap address
+    mapping(address => MetaPoolInfo) public metaPoolInfo;
 
     event Deposited(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdrawn(address indexed user, uint256 indexed pid, uint256 amount);
@@ -238,13 +238,15 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
     // Reference https://curve.readthedocs.io/ref-addresses.html?highlight=zap#deposit-zaps
     function addConvexPool(
         uint256 _originConvexPid,
+        address _curveSwapAddress,
         address _curveZapAddress,
         address _basePoolAddress,
-        address[] calldata _underlyTokens,
         bool _isMeta,
         bool _isMetaFactory
     ) public override onlyGovernance {
+        require(_curveSwapAddress != address(0), "!_curveSwapAddress");
         require(_curveZapAddress != address(0), "!_curveZapAddress");
+        require(_basePoolAddress != address(0), "!_basePoolAddress");
 
         (
             address lpToken,
@@ -260,10 +262,10 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         require(!shutdown, "!shutdown");
         require(lpToken != address(0), "!lpToken");
 
-        curveZaps[lpToken] = ZapInfo(
+        metaPoolInfo[lpToken] = MetaPoolInfo(
+            _curveSwapAddress,
             _curveZapAddress,
             _basePoolAddress,
-            _underlyTokens,
             _isMeta,
             _isMetaFactory
         );
@@ -443,10 +445,10 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         uint256 _amount,
         int128 _coinId
     ) internal {
-        if (curveZaps[_lpToken].zapAddress != address(0)) {
-            _curveSwapAddress = curveZaps[_lpToken].zapAddress;
+        if (metaPoolInfo[_lpToken].zapAddress != address(0)) {
+            _curveSwapAddress = metaPoolInfo[_lpToken].zapAddress;
 
-            if (curveZaps[_lpToken].isMetaFactory) {
+            if (metaPoolInfo[_lpToken].isMetaFactory) {
                 ICurveSwapV2(_curveSwapAddress).remove_liquidity_one_coin(
                     _lpToken,
                     _amount,
@@ -503,10 +505,16 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         address curveSwapAddress = pool.curveSwapAddress;
         address underlyToken;
 
-        if (curveZaps[pool.lpToken].zapAddress != address(0)) {
-            underlyToken = curveZaps[pool.lpToken].underlyTokens[
-                uint256(_coinId)
-            ];
+        if (metaPoolInfo[pool.lpToken].zapAddress != address(0)) {
+            if (_coinId == 0) {
+                underlyToken = ICurveSwap(
+                    metaPoolInfo[pool.lpToken].swapAddress
+                ).coins(uint256(_coinId));
+            } else {
+                underlyToken = ICurveSwap(
+                    metaPoolInfo[pool.lpToken].basePoolAddress
+                ).coins(uint256(_coinId).sub(1));
+            }
         } else {
             underlyToken = ICurveSwap(pool.curveSwapAddress).coins(
                 uint256(_coinId)
@@ -636,7 +644,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         override
         returns (address)
     {
-        return curveZaps[_lpToken].zapAddress;
+        return metaPoolInfo[_lpToken].zapAddress;
     }
 
     function calculateTokenAmount(
@@ -648,10 +656,10 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
 
         address curveSwapAddress = pool.curveSwapAddress;
 
-        if (curveZaps[pool.lpToken].zapAddress != address(0)) {
-            curveSwapAddress = curveZaps[pool.lpToken].zapAddress;
+        if (metaPoolInfo[pool.lpToken].zapAddress != address(0)) {
+            curveSwapAddress = metaPoolInfo[pool.lpToken].zapAddress;
 
-            if (curveZaps[pool.lpToken].isMetaFactory) {
+            if (metaPoolInfo[pool.lpToken].isMetaFactory) {
                 return
                     ICurveSwapV2(curveSwapAddress).calc_withdraw_one_coin(
                         pool.lpToken,
