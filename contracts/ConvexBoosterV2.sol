@@ -56,6 +56,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
     struct ZapInfo {
         address zapAddress;
         address basePoolAddress;
+        uint256 nCoins;
         bool isMeta;
         bool isMetaFactory;
     }
@@ -239,6 +240,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         uint256 _originConvexPid,
         address _curveZapAddress,
         address _basePoolAddress,
+        uint256 _nCoins,
         bool _isMeta,
         bool _isMetaFactory
     ) public override onlyGovernance {
@@ -261,6 +263,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         curveZaps[lpToken] = ZapInfo(
             _curveZapAddress,
             _basePoolAddress,
+            _nCoins,
             _isMeta,
             _isMetaFactory
         );
@@ -501,8 +504,10 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         address underlyToken;
 
         if (curveZaps[pool.lpToken].zapAddress != address(0)) {
+            uint256 nCoins = curveZaps[pool.lpToken].nCoins;
+            
             underlyToken = ICurveSwap(curveZaps[pool.lpToken].basePoolAddress)
-                .coins(uint256(_coinId).sub(1));
+                .coins(uint256(_coinId).sub(nCoins.sub(1)));
         } else {
             underlyToken = ICurveSwap(pool.curveSwapAddress).coins(
                 uint256(_coinId)
