@@ -55,6 +55,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
 
     struct ZapInfo {
         address zapAddress;
+        address basePoolAddress;
         bool isMeta;
         bool isMetaFactory;
     }
@@ -237,6 +238,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
     function addConvexPool(
         uint256 _originConvexPid,
         address _curveZapAddress,
+        address _basePoolAddress,
         bool _isMeta,
         bool _isMetaFactory
     ) public override onlyGovernance {
@@ -256,7 +258,12 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         require(!shutdown, "!shutdown");
         require(lpToken != address(0), "!lpToken");
 
-        curveZaps[lpToken] = ZapInfo(_curveZapAddress, _isMeta, _isMetaFactory);
+        curveZaps[lpToken] = ZapInfo(
+            _curveZapAddress,
+            _basePoolAddress,
+            _isMeta,
+            _isMetaFactory
+        );
 
         _addConvexPool(
             _originConvexPid,
@@ -490,11 +497,17 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         IERC20(pool.lpToken).safeApprove(pool.curveSwapAddress, 0);
         IERC20(pool.lpToken).safeApprove(pool.curveSwapAddress, _amount);
 
-        address underlyToken = ICurveSwap(pool.curveSwapAddress).coins(
-            uint256(_coinId)
-        );
-
         address curveSwapAddress = pool.curveSwapAddress;
+        address underlyToken;
+
+        if (curveZaps[pool.lpToken].zapAddress != address(0)) {
+            underlyToken = ICurveSwap(curveZaps[pool.lpToken].basePoolAddress)
+                .coins(uint256(_coinId).sub(1));
+        } else {
+            underlyToken = ICurveSwap(pool.curveSwapAddress).coins(
+                uint256(_coinId)
+            );
+        }
 
         _removeLiquidity(pool.lpToken, curveSwapAddress, _amount, _coinId);
 

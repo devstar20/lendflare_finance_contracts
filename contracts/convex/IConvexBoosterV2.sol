@@ -53,7 +53,7 @@ interface IConvexBoosterV2 is IConvexBooster {
 
     function addConvexPool(uint256 _originConvexPid) external override;
 
-    function addConvexPool(uint256 _originConvexPid, address _curveZapAddress, bool _isMeta, bool _isMetaFactory)
+    function addConvexPool(uint256 _originConvexPid, address _curveZapAddress, address _basePoolAddress, bool _isMeta, bool _isMetaFactory)
         external;
 
     function getPoolZapAddress(address _lpToken)
