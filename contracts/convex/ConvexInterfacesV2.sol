@@ -29,7 +29,8 @@ interface ICurveSwapV2 is ICurveSwap {
         uint256 _min_amount
     ) external;
 
-    function coins(uint256 _coinId) external view override returns (address);
+    // function coins(uint256 _coinId) external view returns(address); in ICurveSwap
+    function coins(int128 _coinId) external view returns (address);
 
     function balances(uint256 _coinId) external view override returns (uint256);
 

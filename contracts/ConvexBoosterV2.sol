@@ -74,6 +74,19 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
     event SetOwner(address owner);
     event SetGovernance(address governance);
     event CurveZap(address lpToken, address curveZapAddress);
+    event SetLendingMarket(address lendingMarket);
+    event AddConvexPool(
+        uint256 originConvexPid,
+        address lpToken,
+        address curveSwapAddress
+    );
+    event RemoveLiquidity(
+        address lpToken,
+        address curveSwapAddress,
+        uint256 amount,
+        int128 coinId
+    );
+    event ClaimRewardToken(uint256 pid);
 
     modifier onlyOwner() {
         require(owner == msg.sender, "ConvexBooster: caller is not the owner");
@@ -117,6 +130,8 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         require(_v != address(0), "!_v");
 
         lendingMarket = _v;
+
+        emit SetLendingMarket(lendingMarket);
     }
 
     // @custom:oz-upgrades-unsafe-allow constructor
@@ -199,6 +214,8 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
                 shutdown: false
             })
         );
+
+        emit AddConvexPool(_originConvexPid, _lpToken, _curveSwapAddress);
     }
 
     function addConvexPool(uint256 _originConvexPid)
@@ -275,7 +292,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
             lpToken,
             originCrvRewards,
             originStash,
-            _curveZapAddress
+            _curveSwapAddress
         );
 
         emit CurveZap(lpToken, _curveZapAddress);
@@ -446,14 +463,15 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         int128 _coinId
     ) internal {
         if (metaPoolInfo[_lpToken].zapAddress != address(0)) {
-            _curveSwapAddress = metaPoolInfo[_lpToken].zapAddress;
-
             if (metaPoolInfo[_lpToken].isMetaFactory) {
-                ICurveSwapV2(_curveSwapAddress).remove_liquidity_one_coin(
+                ICurveSwapV2(metaPoolInfo[_lpToken].zapAddress)
+                    .remove_liquidity_one_coin(_lpToken, _amount, _coinId, 0);
+
+                emit RemoveLiquidity(
                     _lpToken,
+                    _curveSwapAddress,
                     _amount,
-                    _coinId,
-                    0
+                    _coinId
                 );
 
                 return;
@@ -465,6 +483,8 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
             _coinId,
             0
         );
+
+        emit RemoveLiquidity(_lpToken, _curveSwapAddress, _amount, _coinId);
     }
 
     function liquidate(
@@ -502,26 +522,28 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         IERC20(pool.lpToken).safeApprove(pool.curveSwapAddress, 0);
         IERC20(pool.lpToken).safeApprove(pool.curveSwapAddress, _amount);
 
-        address curveSwapAddress = pool.curveSwapAddress;
         address underlyToken;
 
         if (metaPoolInfo[pool.lpToken].zapAddress != address(0)) {
-            if (_coinId == 0) {
-                underlyToken = ICurveSwap(
-                    metaPoolInfo[pool.lpToken].swapAddress
-                ).coins(uint256(_coinId));
+            if (
+                metaPoolInfo[pool.lpToken].swapAddress ==
+                metaPoolInfo[pool.lpToken].basePoolAddress ||
+                (!metaPoolInfo[pool.lpToken].isMeta &&
+                    !metaPoolInfo[pool.lpToken].isMetaFactory) ||
+                _coinId == 0
+            ) {
+                underlyToken = _coins(pool.curveSwapAddress, _coinId);
             } else {
-                underlyToken = ICurveSwap(
-                    metaPoolInfo[pool.lpToken].basePoolAddress
-                ).coins(uint256(_coinId).sub(1));
+                underlyToken = _coins(
+                    metaPoolInfo[pool.lpToken].basePoolAddress,
+                    _coinId - 1
+                );
             }
         } else {
-            underlyToken = ICurveSwap(pool.curveSwapAddress).coins(
-                uint256(_coinId)
-            );
+            underlyToken = _coins(pool.curveSwapAddress, _coinId);
         }
 
-        _removeLiquidity(pool.lpToken, curveSwapAddress, _amount, _coinId);
+        _removeLiquidity(pool.lpToken, pool.curveSwapAddress, _amount, _coinId);
 
         if (underlyToken == ZERO_ADDRESS) {
             uint256 totalAmount = address(this).balance;
@@ -612,6 +634,8 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
 
             IConvexRewardPool(pool.rewardCvxPool).notifyRewardAmount(cvxBal);
         }
+
+        emit ClaimRewardToken(_pid);
     }
 
     function claimAllRewardToken() public {
@@ -620,6 +644,7 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         }
     }
 
+    // solhint-disable-next-line no-empty-blocks
     receive() external payable {}
 
     /* view functions */
@@ -647,6 +672,25 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
         return metaPoolInfo[_lpToken].zapAddress;
     }
 
+    function _coins(address _swapAddress, int128 _coinId)
+        internal
+        view
+        returns (address)
+    {
+        // curve v1 base pool
+        address susd = 0xA5407eAE9Ba41422680e2e00537571bcC53efBfD;
+        address sbtc = 0x7fC77b5c7614E1533320Ea6DDc2Eb61fa00A9714;
+        address ren = 0x93054188d876f558f4a66B2EF1d97d16eDf0895B;
+
+        if (
+            _swapAddress == susd || _swapAddress == sbtc || _swapAddress == ren
+        ) {
+            return ICurveSwapV2(_swapAddress).coins(_coinId);
+        }
+
+        return ICurveSwapV2(_swapAddress).coins(uint256(_coinId));
+    }
+
     function calculateTokenAmount(
         uint256 _pid,
         uint256 _tokens,
@@ -654,23 +698,24 @@ contract ConvexBoosterV2 is Initializable, ReentrancyGuard, IConvexBoosterV2 {
     ) external view override returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
 
-        address curveSwapAddress = pool.curveSwapAddress;
-
         if (metaPoolInfo[pool.lpToken].zapAddress != address(0)) {
-            curveSwapAddress = metaPoolInfo[pool.lpToken].zapAddress;
-
             if (metaPoolInfo[pool.lpToken].isMetaFactory) {
                 return
-                    ICurveSwapV2(curveSwapAddress).calc_withdraw_one_coin(
-                        pool.lpToken,
-                        _tokens,
-                        _curveCoinId
-                    );
+                    ICurveSwapV2(metaPoolInfo[pool.lpToken].zapAddress)
+                        .calc_withdraw_one_coin(
+                            pool.curveSwapAddress,
+                            _tokens,
+                            _curveCoinId
+                        );
             }
+
+            return
+                ICurveSwapV2(metaPoolInfo[pool.lpToken].zapAddress)
+                    .calc_withdraw_one_coin(_tokens, _curveCoinId);
         }
 
         return
-            ICurveSwapV2(curveSwapAddress).calc_withdraw_one_coin(
+            ICurveSwapV2(pool.curveSwapAddress).calc_withdraw_one_coin(
                 _tokens,
                 _curveCoinId
             );

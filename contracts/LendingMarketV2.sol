@@ -166,6 +166,16 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
     event PreStored();
     event Deposit(address user, uint256 pid, uint256 token0);
     event Withdraw(address user, uint256 pid, uint256 token0);
+    event SetLiquidateThresholdBlockNumbers(uint256 blockNumbers);
+    event SetLendingThreshold(uint256 pid, uint256 threshold);
+    event SetLiquidateThreshold(uint256 pid, uint256 threshold);
+    event AddMarketPool(
+        uint256 convexBoosterPid,
+        uint256[] supplyBoosterPids,
+        int128[] curveCoinIds,
+        uint256 lendingThreshold,
+        uint256 liquidateThreshold
+    );
 
     modifier onlyOwner() {
         require(owner == msg.sender, "LendingMarket: caller is not the owner");
@@ -219,6 +229,8 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
     }
 
     function deposit(uint256 _pid, uint256 _token0) public {
+        require(_pid < poolInfo.length, "!_pid");
+
         PoolInfo storage pool = poolInfo[_pid];
 
         address lpToken = IConvexBoosterV2(convexBooster).getPoolToken(
@@ -242,6 +254,8 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
     }
 
     function withdraw(uint256 _pid, uint256 _token0) public nonReentrant {
+        require(_pid < poolInfo.length, "!_pid");
+        
         PoolInfo storage pool = poolInfo[_pid];
 
         require(deposits[_pid][msg.sender] >= _token0, "!deposits");
@@ -673,6 +687,8 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
         );
 
         liquidateThresholdBlockNumbers = _v;
+
+        emit SetLiquidateThresholdBlockNumbers(liquidateThresholdBlockNumbers);
     }
 
     function setBorrowBlock(uint256 _number, bool _state)
@@ -702,6 +718,8 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
         PoolInfo storage pool = poolInfo[_pid];
 
         pool.lendingThreshold = _v;
+
+        emit SetLendingThreshold(_pid, pool.lendingThreshold);
     }
 
     function setLiquidateThreshold(uint256 _pid, uint256 _v)
@@ -716,6 +734,8 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
         PoolInfo storage pool = poolInfo[_pid];
 
         pool.liquidateThreshold = _v;
+
+        emit SetLiquidateThreshold(_pid, pool.lendingThreshold);
     }
 
     receive() external payable {}
@@ -756,6 +776,14 @@ contract LendingMarketV2 is Initializable, ReentrancyGuard {
                 liquidateThreshold: _liquidateThreshold,
                 borrowIndex: 0
             })
+        );
+
+        emit AddMarketPool(
+            _convexBoosterPid,
+            _supplyBoosterPids,
+            _curveCoinIds,
+            _lendingThreshold,
+            _liquidateThreshold
         );
     }
 
